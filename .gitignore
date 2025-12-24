@@ -1,0 +1,32 @@
+# IDE - JetBrains
+.idea/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+vendor/
+
+# Build
+dist/
+build/
+*.cache
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*~
