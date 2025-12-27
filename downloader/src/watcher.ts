@@ -5,6 +5,7 @@ import { getConfig } from './utils/config.js';
 import { extractLinkFromTorrent, extractNameFromTorrent } from './utils/torrent.js';
 import { addDownloadToAll, getEnabledClients } from './clients/index.js';
 import { alldebrid } from './utils/alldebrid.js';
+import { isDlProtectLink, resolveDlProtectLink } from './utils/dlprotect.js';
 
 const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
 
@@ -33,9 +34,25 @@ async function processFile(filePath: string): Promise<void> {
   }
 
   const filename = extractNameFromTorrent(filePath) || path.basename(filePath, '.torrent');
+  const config = getConfig();
 
   console.log(`[Watcher] Found link: ${link}`);
   console.log(`[Watcher] Filename: ${filename}`);
+
+  // Resolve dl-protect links if configured to resolve in downloader
+  if (config.dlprotectResolveAt === 'downloader' && isDlProtectLink(link)) {
+    console.log(`[Watcher] Resolving dl-protect link...`);
+    try {
+      const resolvedLink = await resolveDlProtectLink(link);
+      if (resolvedLink !== link) {
+        console.log(`[Watcher] Resolved dl-protect: ${resolvedLink}`);
+        link = resolvedLink;
+      }
+    } catch (error: any) {
+      console.error(`[Watcher] DL-Protect resolution error: ${error.message}`);
+      // Continue with original link
+    }
+  }
 
   // Try to debrid the link if AllDebrid is configured
   if (alldebrid.isConfigured()) {
@@ -101,6 +118,7 @@ export function startWatcher(): void {
   const enabledClients = getEnabledClients();
   console.log(`[Watcher] Debug mode: ${DEBUG ? 'enabled (files moved to processed/)' : 'disabled (files deleted)'}`);
   console.log(`[Watcher] Enabled clients: ${enabledClients.map(c => c.name).join(', ') || 'none'}`);
+  console.log(`[Watcher] DL-Protect resolution: ${config.dlprotectResolveAt === 'downloader' ? 'enabled (in downloader)' : 'disabled (done in indexer)'}`);
   console.log(`[Watcher] AllDebrid: ${alldebrid.isConfigured() ? 'configured' : 'not configured'}`);
 
   if (enabledClients.length === 0) {

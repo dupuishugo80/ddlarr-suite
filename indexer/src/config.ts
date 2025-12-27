@@ -14,6 +14,8 @@ export const config = {
 
   // darkiworldApiKey: process.env.DARKIWORLD_API_KEY || '', // Disabled
   dlprotectServiceUrl: process.env.DLPROTECT_SERVICE_URL || 'http://localhost:5000',
+  // Where to resolve dl-protect links: 'indexer' or 'downloader'
+  dlprotectResolveAt: (process.env.DLPROTECT_RESOLVE_AT || 'indexer') as 'indexer' | 'downloader',
 } as const;
 
 export type SiteType = 'wawacity' | 'zonetelecharger';

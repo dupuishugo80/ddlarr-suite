@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { getScraper, isValidSite, getAvailableSites, contentTypeToCategory } from '../scrapers/index.js';
 import { buildTorznabResponse, buildCapsResponse, buildErrorResponse } from '../utils/xml.js';
 import { TorznabItem, TorznabCaps, TorznabCategory, SearchParams, ScraperResult } from '../models/torznab.js';
-import { SiteType } from '../config.js';
+import { SiteType, config } from '../config.js';
 import { generateFakeTorrent } from '../utils/torrent.js';
 import { isDlProtectLink, resolveDlProtectLink } from '../utils/dlprotect.js';
 
@@ -65,12 +65,13 @@ function getCapsForSite(siteName: string): TorznabCaps {
 
 async function processResults(results: ScraperResult[]): Promise<TorznabItem[]> {
   const items: TorznabItem[] = [];
+  const resolveInIndexer = config.dlprotectResolveAt === 'indexer';
 
   for (const result of results) {
-    // Resolve dl-protect links via Botasaurus service
+    // Resolve dl-protect links via Botasaurus service (if configured to resolve in indexer)
     // Note: Debriding is now handled by the downloader service
     let link = result.link;
-    if (isDlProtectLink(link)) {
+    if (resolveInIndexer && isDlProtectLink(link)) {
       link = await resolveDlProtectLink(link);
     }
 

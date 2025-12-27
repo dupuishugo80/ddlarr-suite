@@ -37,6 +37,7 @@ export interface Config {
   processedPath: string; // Where to move processed torrents
   scanInterval: number; // Seconds between scans
   alldebridApiKey?: string; // AllDebrid API key for debriding links
+  dlprotectResolveAt: 'indexer' | 'downloader'; // Where to resolve dl-protect links
   downloadStation: DownloadStationConfig;
   jdownloader: JDownloaderConfig;
   aria2: Aria2Config;
@@ -49,6 +50,7 @@ const defaultConfig: Config = {
   processedPath: process.env.PROCESSED_PATH || '/blackhole/processed',
   scanInterval: parseInt(process.env.SCAN_INTERVAL || '10', 10),
   alldebridApiKey: process.env.ALLDEBRID_API_KEY || '',
+  dlprotectResolveAt: (process.env.DLPROTECT_RESOLVE_AT || 'indexer') as 'indexer' | 'downloader',
   downloadStation: {
     enabled: process.env.DS_ENABLED === 'true',
     host: process.env.DS_HOST || '',

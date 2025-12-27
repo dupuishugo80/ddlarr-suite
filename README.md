@@ -208,12 +208,27 @@ Voir `.env.example` pour la liste complète.
 | `ZONETELECHARGER_URL` | URL de Zone-Téléchargement | - |
 | `BLACKHOLE_PATH` | Dossier blackhole | - |
 | `ALLDEBRID_API_KEY` | Clé API AllDebrid | - |
+| `DLPROTECT_RESOLVE_AT` | Où résoudre les liens dl-protect (voir ci-dessous) | indexer |
 | `DEBUG` | Mode debug (voir ci-dessous) | false |
 | `DS_ENABLED` | Activer Download Station | false |
 | `JD_ENABLED` | Activer JDownloader | false |
 | `ARIA2_ENABLED` | Activer aria2 | false |
 
 > Au moins une URL de site (`WAWACITY_URL` ou `ZONETELECHARGER_URL`) doit être configurée.
+
+### Résolution des liens dl-protect
+
+La variable `DLPROTECT_RESOLVE_AT` contrôle à quel moment les liens dl-protect sont résolus :
+
+| Valeur | Description |
+|--------|-------------|
+| `indexer` | Les liens sont résolus lors de la recherche. Navigation plus rapide dans Radarr/Sonarr car les liens sont déjà prêts. |
+| `downloader` | Les liens sont résolus uniquement au moment du téléchargement. Moins de charge sur le service de résolution. |
+
+```bash
+# Dans .env
+DLPROTECT_RESOLVE_AT=downloader
+```
 
 ### Mode Debug
 
