@@ -270,8 +270,5 @@ export function stopWatcher(): void {
     watcher = null;
   }
 
-  // Clear processed files cache
-  processedFiles.clear();
-
   console.log('[Watcher] Stopped');
 }
