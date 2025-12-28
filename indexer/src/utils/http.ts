@@ -90,5 +90,6 @@ export async function fetchJson<T>(url: string, configOpts?: AxiosRequestConfig)
 }
 
 export function encodeSearchQuery(query: string): string {
-  return encodeURIComponent(query.trim().toLowerCase());
+  return encodeURIComponent(query.trim().toLowerCase())
+    .replace(/%20/g, '+');
 }
