@@ -20,7 +20,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY package.json ./
 
-# Create cache directory
+# Create cache dir
 RUN mkdir -p /app/cache
 
 ENV NODE_ENV=production
