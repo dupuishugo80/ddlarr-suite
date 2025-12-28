@@ -223,15 +223,10 @@ export class WawacityScraper implements BaseScraper {
         console.log(`[WawaCity] Parsed title: "${title}" -> name="${name}", season=${extractedSeason}`);
 
         // Vérifie que le nom correspond à la recherche (Levenshtein, adapté au type de contenu)
-        // Pour les films, on est moins strict car le titre original sera vérifié sur la page détail
         if (validationQuery && name) {
           if (!isNameMatch(validationQuery, name, contentType, '[WawaCity]')) {
-            // Pour les films, on garde le résultat pour vérifier le titre original plus tard
-            if (contentType !== 'movie') {
-              console.log(`[WawaCity] Skipping "${name}" - too different from "${validationQuery}"`);
-              return;
-            }
-            console.log(`[WawaCity] Keeping "${name}" (movie) - will check original title on detail page`);
+            console.log(`[WawaCity] Skipping "${name}" - too different from "${validationQuery}"`);
+            return;
           }
         }
 
