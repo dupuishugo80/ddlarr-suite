@@ -22,6 +22,7 @@ interface SearchResult {
   language?: string;
   season?: number;
   needsOriginalTitleCheck?: boolean; // True if French title didn't match, need to check original title
+  validationQuery?: string; // The query used for Levenshtein validation (IMDB title or original query)
 }
 
 export class ZoneTelechargerScraper implements BaseScraper {
@@ -103,7 +104,7 @@ export class ZoneTelechargerScraper implements BaseScraper {
         console.log(`[ZoneTelecharger] Searching ${contentType} with query "${query}": ${baseSearchUrl}`);
 
         try {
-          return await this.fetchAllPages(baseSearchUrl, contentType, params);
+          return await this.fetchAllPages(baseSearchUrl, contentType, params, query);
         } catch (error) {
           console.error(`[ZoneTelecharger] Error searching query "${query}":`, error);
           return [];
@@ -151,7 +152,7 @@ export class ZoneTelechargerScraper implements BaseScraper {
     }
   }
 
-  private async fetchAllPages(baseSearchUrl: string, contentType: ContentType, params: SearchParams): Promise<SearchResult[]> {
+  private async fetchAllPages(baseSearchUrl: string, contentType: ContentType, params: SearchParams, validationQuery: string): Promise<SearchResult[]> {
     const allResults: SearchResult[] = [];
     let currentPage = 1;
     const maxPages = config.searchMaxPages;
@@ -162,7 +163,7 @@ export class ZoneTelechargerScraper implements BaseScraper {
 
       try {
         const html = await fetchHtml(pageUrl);
-        const results = this.parseSearchResults(html, contentType, params);
+        const results = this.parseSearchResults(html, contentType, params, validationQuery);
 
         if (results.length === 0) {
           console.log(`[ZoneTelecharger] No results on page ${currentPage}, stopping pagination`);
@@ -190,11 +191,11 @@ export class ZoneTelechargerScraper implements BaseScraper {
     return allResults;
   }
 
-  private parseSearchResults(html: string, contentType: ContentType, params: SearchParams): SearchResult[] {
+  private parseSearchResults(html: string, contentType: ContentType, params: SearchParams, validationQuery: string): SearchResult[] {
     const $ = cheerio.load(html);
     const results: SearchResult[] = [];
 
-    console.log(`[ZoneTelecharger] Parsing search results for ${contentType}`);
+    console.log(`[ZoneTelecharger] Parsing search results for ${contentType} (validating against "${validationQuery}")`);
 
     // Parse les blocs .cover_global
     $('.cover_global').each((_, block) => {
@@ -224,10 +225,10 @@ export class ZoneTelechargerScraper implements BaseScraper {
         // Vérifie que le nom correspond à la recherche (Levenshtein, adapté au type de contenu)
         // Pour les films, on est moins strict car on vérifiera le titre original sur la page détail
         let needsOriginalTitleCheck = false;
-        if (params.q && name) {
-          if (!isNameMatch(params.q, name, contentType, '[ZoneTelecharger]')) {
+        if (validationQuery && name) {
+          if (!isNameMatch(validationQuery, name, contentType, '[ZoneTelecharger]')) {
             if (contentType !== 'movie') {
-              console.log(`[ZoneTelecharger] Skipping "${name}" - too different from "${params.q}"`);
+              console.log(`[ZoneTelecharger] Skipping "${name}" - too different from "${validationQuery}"`);
               return;
             }
             console.log(`[ZoneTelecharger] Keeping "${name}" (movie) - will check original title on detail page`);
@@ -257,6 +258,7 @@ export class ZoneTelechargerScraper implements BaseScraper {
           language,
           season: extractedSeason,
           needsOriginalTitleCheck,
+          validationQuery,
         });
       } catch {
         // Skip invalid items
@@ -288,13 +290,14 @@ export class ZoneTelechargerScraper implements BaseScraper {
     }
 
     // Si on doit vérifier le titre original et qu'il ne correspond pas, on skip
-    if (needsOriginalTitleCheck && params.q) {
+    const validationQuery = searchResult.validationQuery;
+    if (needsOriginalTitleCheck && validationQuery) {
       const { name } = extractName(searchResult.title, contentType);
-      const frenchMatches = name ? isNameMatch(params.q, name, contentType, '[ZoneTelecharger]') : false;
-      const originalMatches = originalTitle ? isNameMatch(params.q, originalTitle, contentType, '[ZoneTelecharger]') : false;
+      const frenchMatches = name ? isNameMatch(validationQuery, name, contentType, '[ZoneTelecharger]') : false;
+      const originalMatches = originalTitle ? isNameMatch(validationQuery, originalTitle, contentType, '[ZoneTelecharger]') : false;
 
       if (!frenchMatches && !originalMatches) {
-        console.log(`[ZoneTelecharger] Skipping "${searchResult.title}" - neither French title "${name}" nor original "${originalTitle}" match "${params.q}"`);
+        console.log(`[ZoneTelecharger] Skipping "${searchResult.title}" - neither French title "${name}" nor original "${originalTitle}" match "${validationQuery}"`);
         return [];
       }
       if (originalMatches && !frenchMatches) {

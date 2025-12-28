@@ -109,7 +109,7 @@ export class WawacityScraper implements BaseScraper {
         console.log(`[WawaCity] Searching ${contentType} with query "${query}": ${baseSearchUrl}`);
 
         try {
-          return await this.fetchAllPages(baseSearchUrl, contentType, params);
+          return await this.fetchAllPages(baseSearchUrl, contentType, params, query);
         } catch (error) {
           console.error(`[WawaCity] Error searching query "${query}":`, error);
           return [];
@@ -157,7 +157,7 @@ export class WawacityScraper implements BaseScraper {
     }
   }
 
-  private async fetchAllPages(baseSearchUrl: string, contentType: ContentType, params: SearchParams): Promise<SearchResult[]> {
+  private async fetchAllPages(baseSearchUrl: string, contentType: ContentType, params: SearchParams, validationQuery: string): Promise<SearchResult[]> {
     const allResults: SearchResult[] = [];
     let currentPage = 1;
     const maxPages = config.searchMaxPages;
@@ -168,7 +168,7 @@ export class WawacityScraper implements BaseScraper {
 
       try {
         const html = await fetchHtml(pageUrl);
-        const results = this.parseSearchResults(html, contentType, params);
+        const results = this.parseSearchResults(html, contentType, params, validationQuery);
 
         if (results.length === 0) {
           console.log(`[WawaCity] No results on page ${currentPage}, stopping pagination`);
@@ -196,11 +196,11 @@ export class WawacityScraper implements BaseScraper {
     return allResults;
   }
 
-  private parseSearchResults(html: string, contentType: ContentType, params: SearchParams): SearchResult[] {
+  private parseSearchResults(html: string, contentType: ContentType, params: SearchParams, validationQuery: string): SearchResult[] {
     const $ = cheerio.load(html);
     const results: SearchResult[] = [];
 
-    console.log(`[WawaCity] Parsing search results for ${contentType}`);
+    console.log(`[WawaCity] Parsing search results for ${contentType} (validating against "${validationQuery}")`);
 
     // Parse les blocs .wa-sub-block.wa-post-detail-item
     $('.wa-sub-block.wa-post-detail-item').each((_, block) => {
@@ -224,11 +224,11 @@ export class WawacityScraper implements BaseScraper {
 
         // Vérifie que le nom correspond à la recherche (Levenshtein, adapté au type de contenu)
         // Pour les films, on est moins strict car le titre original sera vérifié sur la page détail
-        if (params.q && name) {
-          if (!isNameMatch(params.q, name, contentType, '[WawaCity]')) {
+        if (validationQuery && name) {
+          if (!isNameMatch(validationQuery, name, contentType, '[WawaCity]')) {
             // Pour les films, on garde le résultat pour vérifier le titre original plus tard
             if (contentType !== 'movie') {
-              console.log(`[WawaCity] Skipping "${name}" - too different from "${params.q}"`);
+              console.log(`[WawaCity] Skipping "${name}" - too different from "${validationQuery}"`);
               return;
             }
             console.log(`[WawaCity] Keeping "${name}" (movie) - will check original title on detail page`);
@@ -280,8 +280,8 @@ export class WawacityScraper implements BaseScraper {
           const { name, season: extractedSeason } = extractName(titleHtml, contentType);
 
           // Vérifie que le nom correspond (Levenshtein, adapté au type de contenu)
-          if (params.q && name) {
-            if (!isNameMatch(params.q, name, contentType, '[WawaCity]')) {
+          if (validationQuery && name) {
+            if (!isNameMatch(validationQuery, name, contentType, '[WawaCity]')) {
               return;
             }
           }
