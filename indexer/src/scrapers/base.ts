@@ -104,7 +104,7 @@ export function contentTypeToCategory(contentType: ContentType, quality?: string
   if (contentType === 'series') {
     if (isUHD) return 5045;
     if (isHD) return 5040;
-    return 5000;
+    return 5030; // Default to SD when quality unknown
   }
 
   return 2000;
