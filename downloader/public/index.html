@@ -371,6 +371,18 @@
         document.getElementById('aria2Port').value = config.aria2?.port || 6800;
         document.getElementById('aria2Secret').value = config.aria2?.secret || '';
         document.getElementById('aria2Dir').value = config.aria2?.dir || '';
+
+        // pyLoad
+        document.getElementById('pyloadEnabled').checked = config.pyload?.enabled || false;
+        document.getElementById('pyloadHost').value = config.pyload?.host || '';
+        document.getElementById('pyloadPort').value = config.pyload?.port || 8000;
+        document.getElementById('pyloadUsername').value = config.pyload?.username || '';
+        document.getElementById('pyloadPassword').value = config.pyload?.password || '';
+        document.getElementById('pyloadUseSsl').checked = config.pyload?.useSsl || false;
+
+        // curl/wget
+        document.getElementById('curlEnabled').checked = config.curl?.enabled || false;
+        document.getElementById('wgetEnabled').checked = config.wget?.enabled || false;
       } catch (error) {
         showMessage('Failed to load config: ' + error, 'error');
       }
@@ -476,12 +488,110 @@
       }, btn);
     }
 
+    async function savePyload(btn) {
+      await saveSection('pyLoad', {
+        pyload: {
+          enabled: document.getElementById('pyloadEnabled').checked,
+          host: document.getElementById('pyloadHost').value,
+          port: parseInt(document.getElementById('pyloadPort').value) || 8000,
+          username: document.getElementById('pyloadUsername').value,
+          password: document.getElementById('pyloadPassword').value,
+          useSsl: document.getElementById('pyloadUseSsl').checked,
+        },
+      }, btn);
+    }
+
+    async function saveDirectDownload(btn) {
+      await saveSection('Direct Download', {
+        curl: {
+          enabled: document.getElementById('curlEnabled').checked,
+          destinationPath: '/downloads',
+        },
+        wget: {
+          enabled: document.getElementById('wgetEnabled').checked,
+          destinationPath: '/downloads',
+        },
+      }, btn);
+    }
+
+    async function saveDebrid(btn) {
+      await saveSection('Debrid', {
+        debrid: {
+          alldebrid: {
+            enabled: document.getElementById('alldebridEnabled').checked,
+            apiKey: document.getElementById('alldebridApiKey').value,
+          },
+          realdebrid: {
+            enabled: document.getElementById('realdebridEnabled').checked,
+            apiKey: document.getElementById('realdebridApiKey').value,
+          },
+          premiumize: {
+            enabled: document.getElementById('premiumizeEnabled').checked,
+            apiKey: document.getElementById('premiumizeApiKey').value,
+          },
+        },
+      }, btn);
+    }
+
+    async function testDebrid(serviceName) {
+      const statusId = serviceName.toLowerCase().replace('-', '') + 'Status';
+      document.getElementById(statusId).innerHTML = '<span class="status status-pending">Testing...</span>';
+
+      try {
+        const config = {
+          debrid: {
+            alldebrid: {
+              enabled: document.getElementById('alldebridEnabled').checked,
+              apiKey: document.getElementById('alldebridApiKey').value,
+            },
+            realdebrid: {
+              enabled: document.getElementById('realdebridEnabled').checked,
+              apiKey: document.getElementById('realdebridApiKey').value,
+            },
+            premiumize: {
+              enabled: document.getElementById('premiumizeEnabled').checked,
+              apiKey: document.getElementById('premiumizeApiKey').value,
+            },
+          },
+        };
+        const res = await fetch(`/api/debrid/${encodeURIComponent(serviceName)}/test`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config),
+        });
+        const result = await res.json();
+
+        if (result.success) {
+          document.getElementById(statusId).innerHTML = '<span class="status status-ok">Connected</span>';
+        } else {
+          document.getElementById(statusId).innerHTML = '<span class="status status-error">Failed</span>';
+          console.error('Debrid test failed:', result.message || result.error);
+        }
+      } catch (error) {
+        document.getElementById(statusId).innerHTML = '<span class="status status-error">Error</span>';
+        console.error('Debrid test error:', error);
+      }
+    }
+
     function getCurrentConfig() {
       return {
         blackholePath: document.getElementById('blackholePath').value,
         processedPath: document.getElementById('processedPath').value,
         scanInterval: parseInt(document.getElementById('scanInterval').value) || 10,
-        alldebridApiKey: document.getElementById('alldebridApiKey').value,
+        debrid: {
+          alldebrid: {
+            enabled: document.getElementById('alldebridEnabled').checked,
+            apiKey: document.getElementById('alldebridApiKey').value,
+          },
+          realdebrid: {
+            enabled: document.getElementById('realdebridEnabled').checked,
+            apiKey: document.getElementById('realdebridApiKey').value,
+          },
+          premiumize: {
+            enabled: document.getElementById('premiumizeEnabled').checked,
+            apiKey: document.getElementById('premiumizeApiKey').value,
+          },
+        },
         downloadStation: {
           enabled: document.getElementById('dsEnabled').checked,
           host: document.getElementById('dsHost').value,
@@ -507,94 +617,29 @@
           secret: document.getElementById('aria2Secret').value,
           dir: document.getElementById('aria2Dir').value,
         },
+        pyload: {
+          enabled: document.getElementById('pyloadEnabled').checked,
+          host: document.getElementById('pyloadHost').value,
+          port: parseInt(document.getElementById('pyloadPort').value) || 8000,
+          username: document.getElementById('pyloadUsername').value,
+          password: document.getElementById('pyloadPassword').value,
+          useSsl: document.getElementById('pyloadUseSsl').checked,
+        },
+        curl: {
+          enabled: document.getElementById('curlEnabled').checked,
+          destinationPath: '/downloads',
+        },
+        wget: {
+          enabled: document.getElementById('wgetEnabled').checked,
+          destinationPath: '/downloads',
+        },
       };
-    }
-
-    async function testAllDebrid() {
-      document.getElementById('alldebridStatus').innerHTML = '<span class="status status-pending">Testing...</span>';
-
-      try {
-        const apiKey = document.getElementById('alldebridApiKey').value;
-        const res = await fetch('/api/alldebrid/test', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ alldebridApiKey: apiKey }),
-        });
-        const result = await res.json();
-
-        if (result.success) {
-          document.getElementById('alldebridStatus').innerHTML = '<span class="status status-ok">Connected</span>';
-        } else {
-          document.getElementById('alldebridStatus').innerHTML = '<span class="status status-error">Failed</span>';
-          console.error('AllDebrid test failed:', result.error);
-        }
-      } catch (error) {
-        document.getElementById('alldebridStatus').innerHTML = '<span class="status status-error">Error</span>';
-        console.error('AllDebrid test error:', error);
-      }
-    }
-
-    async function saveAllDebridKey(btn) {
-      const apiKey = document.getElementById('alldebridApiKey').value;
-      if (!apiKey || apiKey === '********') {
-        showMessage('Please enter a valid API key', 'error');
-        return;
-      }
-
-      const originalText = btn ? btn.textContent : null;
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'Saving...';
-      }
-
-      try {
-        const res = await fetch('/api/config/alldebrid', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ alldebridApiKey: apiKey }),
-        });
-        const result = await res.json();
-
-        if (result.success) {
-          showMessage('AllDebrid API key saved!', 'success');
-          if (btn) {
-            btn.textContent = '✓ Saved!';
-            btn.style.background = '#00c853';
-            setTimeout(() => {
-              btn.textContent = originalText;
-              btn.style.background = '';
-              btn.disabled = false;
-            }, 2000);
-          }
-        } else {
-          showMessage('Failed to save: ' + result.error, 'error');
-          if (btn) {
-            btn.textContent = '✗ Error';
-            btn.style.background = '#ff5252';
-            setTimeout(() => {
-              btn.textContent = originalText;
-              btn.style.background = '';
-              btn.disabled = false;
-            }, 2000);
-          }
-        }
-      } catch (error) {
-        showMessage('Failed to save API key: ' + error, 'error');
-        if (btn) {
-          btn.textContent = '✗ Error';
-          btn.style.background = '#ff5252';
-          setTimeout(() => {
-            btn.textContent = originalText;
-            btn.style.background = '';
-            btn.disabled = false;
-          }, 2000);
-        }
-      }
     }
 
     async function testClient(clientName) {
       const statusId = clientName === 'Download Station' ? 'dsStatus' :
-                       clientName === 'JDownloader' ? 'jdStatus' : 'aria2Status';
+                       clientName === 'JDownloader' ? 'jdStatus' :
+                       clientName === 'pyLoad' ? 'pyloadStatus' : 'aria2Status';
 
       document.getElementById(statusId).innerHTML = '<span class="status status-pending">Testing...</span>';
 
