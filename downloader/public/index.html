@@ -123,6 +123,28 @@
       color: #666;
       font-style: italic;
     }
+    .download-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 8px;
+    }
+    .btn-stop {
+      background: #ff5252;
+      color: #fff;
+      padding: 4px 10px;
+      font-size: 12px;
+      border-radius: 4px;
+      border: none;
+      cursor: pointer;
+    }
+    .btn-stop:hover {
+      background: #ff1744;
+    }
+    .btn-stop:disabled {
+      background: #666;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -727,7 +749,10 @@
         card.style.display = 'block';
         list.innerHTML = downloads.map(dl => `
           <div class="download-item">
-            <div class="download-filename">${escapeHtml(dl.filename)}</div>
+            <div class="download-header">
+              <div class="download-filename">${escapeHtml(dl.filename)}</div>
+              ${dl.status === 'downloading' ? `<button class="btn-stop" onclick="stopDownload('${dl.id}')">Stop</button>` : ''}
+            </div>
             <div class="download-progress-bar">
               <div class="download-progress-fill" style="width: ${dl.progress}%"></div>
             </div>
@@ -740,6 +765,23 @@
         `).join('');
       } catch (error) {
         console.error('Error fetching downloads:', error);
+      }
+    }
+
+    async function stopDownload(downloadId) {
+      try {
+        const res = await fetch(`/api/downloads/${encodeURIComponent(downloadId)}/stop`, {
+          method: 'POST',
+        });
+        const result = await res.json();
+        if (result.success) {
+          showMessage('Download stopped', 'success');
+          fetchDownloads();
+        } else {
+          showMessage('Failed to stop download: ' + (result.error || 'Unknown error'), 'error');
+        }
+      } catch (error) {
+        showMessage('Failed to stop download: ' + error, 'error');
       }
     }
 

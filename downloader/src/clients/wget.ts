@@ -1,15 +1,45 @@
-import { spawn } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DownloadClient } from './base.js';
 import { getConfig } from '../utils/config.js';
 import { DownloadProgress } from './curl.js';
 
+interface ActiveDownload extends DownloadProgress {
+  process?: ChildProcess;
+  tempPath?: string;
+}
+
 // Track active downloads for progress reporting
-const activeDownloads: Map<string, DownloadProgress> = new Map();
+const activeDownloads: Map<string, ActiveDownload> = new Map();
 
 export function getWgetActiveDownloads(): DownloadProgress[] {
-  return Array.from(activeDownloads.values());
+  return Array.from(activeDownloads.values()).map(({ process, tempPath, ...rest }) => rest);
+}
+
+export function stopWgetDownload(downloadId: string): boolean {
+  const download = activeDownloads.get(downloadId);
+  if (!download || !download.process) {
+    return false;
+  }
+
+  console.log(`[wget] Stopping download: ${download.filename}`);
+  download.process.kill('SIGTERM');
+  download.status = 'stopped';
+
+  // Cleanup temp file
+  if (download.tempPath && fs.existsSync(download.tempPath)) {
+    try {
+      fs.unlinkSync(download.tempPath);
+      console.log(`[wget] Cleaned up temp file: ${download.tempPath}`);
+    } catch (e) {
+      console.error(`[wget] Failed to cleanup temp file: ${download.tempPath}`);
+    }
+  }
+
+  // Remove after delay
+  setTimeout(() => activeDownloads.delete(downloadId), 5000);
+  return true;
 }
 
 /**
@@ -92,10 +122,11 @@ export class WgetClient implements DownloadClient {
     console.log(`[wget] Temp path: ${tempPath}`);
     console.log(`[wget] Final path: ${finalPath}`);
 
-    const downloadId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const downloadId = `wget-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     // Initialize progress tracking
-    const progress: DownloadProgress = {
+    const progress: ActiveDownload = {
+      id: downloadId,
       filename: finalFilename,
       url,
       progress: 0,
@@ -104,6 +135,7 @@ export class WgetClient implements DownloadClient {
       downloaded: '0 B',
       status: 'downloading',
       startedAt: new Date(),
+      tempPath,
     };
     activeDownloads.set(downloadId, progress);
 
@@ -117,6 +149,9 @@ export class WgetClient implements DownloadClient {
         '-O', tempPath,
         url,
       ]);
+
+      // Store process reference for stop functionality
+      progress.process = proc;
 
       let lastProgress = 0;
 

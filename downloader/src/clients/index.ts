@@ -3,8 +3,8 @@ import { DownloadStationClient } from './downloadstation.js';
 import { JDownloaderClient } from './jdownloader.js';
 import { Aria2Client } from './aria2.js';
 import { PyLoadClient } from './pyload.js';
-import { CurlClient, getActiveDownloads as getCurlDownloads, DownloadProgress } from './curl.js';
-import { WgetClient, getWgetActiveDownloads } from './wget.js';
+import { CurlClient, getActiveDownloads as getCurlDownloads, stopDownload as stopCurlDownload, DownloadProgress } from './curl.js';
+import { WgetClient, getWgetActiveDownloads, stopWgetDownload } from './wget.js';
 
 export const clients: DownloadClient[] = [
   new DownloadStationClient(),
@@ -18,6 +18,16 @@ export const clients: DownloadClient[] = [
 // Export progress tracking for curl and wget
 export function getDirectDownloads(): DownloadProgress[] {
   return [...getCurlDownloads(), ...getWgetActiveDownloads()];
+}
+
+// Stop a download by ID
+export function stopDirectDownload(downloadId: string): boolean {
+  if (downloadId.startsWith('curl-')) {
+    return stopCurlDownload(downloadId);
+  } else if (downloadId.startsWith('wget-')) {
+    return stopWgetDownload(downloadId);
+  }
+  return false;
 }
 
 export type { DownloadProgress } from './curl.js';

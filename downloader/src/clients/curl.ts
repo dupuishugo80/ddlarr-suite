@@ -1,25 +1,57 @@
-import { spawn } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DownloadClient } from './base.js';
 import { getConfig } from '../utils/config.js';
 
 export interface DownloadProgress {
+  id: string;
   filename: string;
   url: string;
   progress: number; // 0-100
   speed: string;
   size: string;
   downloaded: string;
-  status: 'downloading' | 'completed' | 'failed';
+  status: 'downloading' | 'completed' | 'failed' | 'stopped';
   startedAt: Date;
 }
 
+interface ActiveDownload extends DownloadProgress {
+  process?: ChildProcess;
+  tempPath?: string;
+}
+
 // Track active downloads for progress reporting
-const activeDownloads: Map<string, DownloadProgress> = new Map();
+const activeDownloads: Map<string, ActiveDownload> = new Map();
 
 export function getActiveDownloads(): DownloadProgress[] {
-  return Array.from(activeDownloads.values());
+  // Return without process reference
+  return Array.from(activeDownloads.values()).map(({ process, tempPath, ...rest }) => rest);
+}
+
+export function stopDownload(downloadId: string): boolean {
+  const download = activeDownloads.get(downloadId);
+  if (!download || !download.process) {
+    return false;
+  }
+
+  console.log(`[curl] Stopping download: ${download.filename}`);
+  download.process.kill('SIGTERM');
+  download.status = 'stopped';
+
+  // Cleanup temp file
+  if (download.tempPath && fs.existsSync(download.tempPath)) {
+    try {
+      fs.unlinkSync(download.tempPath);
+      console.log(`[curl] Cleaned up temp file: ${download.tempPath}`);
+    } catch (e) {
+      console.error(`[curl] Failed to cleanup temp file: ${download.tempPath}`);
+    }
+  }
+
+  // Remove after delay
+  setTimeout(() => activeDownloads.delete(downloadId), 5000);
+  return true;
 }
 
 /**
@@ -102,10 +134,11 @@ export class CurlClient implements DownloadClient {
     console.log(`[curl] Temp path: ${tempPath}`);
     console.log(`[curl] Final path: ${finalPath}`);
 
-    const downloadId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const downloadId = `curl-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     // Initialize progress tracking
-    const progress: DownloadProgress = {
+    const progress: ActiveDownload = {
+      id: downloadId,
       filename: finalFilename,
       url,
       progress: 0,
@@ -114,6 +147,7 @@ export class CurlClient implements DownloadClient {
       downloaded: '0 B',
       status: 'downloading',
       startedAt: new Date(),
+      tempPath,
     };
     activeDownloads.set(downloadId, progress);
 
@@ -128,6 +162,9 @@ export class CurlClient implements DownloadClient {
         '--fail',
         url,
       ]);
+
+      // Store process reference for stop functionality
+      progress.process = proc;
 
       let lastProgress = 0;
 

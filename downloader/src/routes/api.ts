@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { getConfig, saveConfig, Config } from '../utils/config.js';
-import { clients, getEnabledClients, getDirectDownloads } from '../clients/index.js';
+import { clients, getEnabledClients, getDirectDownloads, stopDirectDownload } from '../clients/index.js';
 import { stopWatcher, startWatcher } from '../watcher.js';
 import { debridServices, getEnabledDebridServices, testDebridService } from '../debrid/index.js';
 
@@ -305,5 +305,19 @@ export async function apiRoutes(app: FastifyInstance): Promise<void> {
     return {
       downloads: getDirectDownloads(),
     };
+  });
+
+  // Stop a download
+  app.post<{ Params: { id: string } }>('/api/downloads/:id/stop', async (request, reply) => {
+    const { id } = request.params;
+    console.log(`[API] Stopping download: ${id}`);
+
+    const success = stopDirectDownload(id);
+    if (success) {
+      return { success: true, message: 'Download stopped' };
+    } else {
+      reply.status(404);
+      return { success: false, error: 'Download not found or already completed' };
+    }
   });
 }
