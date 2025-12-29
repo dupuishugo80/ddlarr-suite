@@ -54,8 +54,9 @@ def clear_screenshots():
 CACHE_DIR = os.environ.get('CACHE_DIR', '/app/cache')
 CACHE_SUBDIR = os.path.join(CACHE_DIR, 'links')
 
-# DL-Protect domains
-DLPROTECT_DOMAINS = ['dl-protect.link', 'dl-protect.net', 'dl-protect.org']
+# DL-Protect domain pattern (matches any TLD: dl-protect.link, dl-protect.xyz, etc.)
+import re
+DLPROTECT_PATTERN = re.compile(r'^(www\.)?dl-protect\.[a-z]+$', re.IGNORECASE)
 
 def get_url_hash(url):
     """Get MD5 hash of URL for cache filename"""
@@ -167,10 +168,10 @@ def save_to_remote_cache(url, resolved_url):
     return False
 
 def is_dlprotect_link(url):
-    """Check if URL is a dl-protect link"""
+    """Check if URL is a dl-protect link (any TLD)"""
     try:
         parsed = urlparse(url)
-        return any(domain in parsed.netloc for domain in DLPROTECT_DOMAINS)
+        return bool(DLPROTECT_PATTERN.match(parsed.netloc))
     except:
         return False
 

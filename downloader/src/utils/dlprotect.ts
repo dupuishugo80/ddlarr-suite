@@ -3,20 +3,16 @@ import axios from 'axios';
 // Botasaurus service URL
 const DLPROTECT_SERVICE_URL = process.env.DLPROTECT_SERVICE_URL || 'http://localhost:5000';
 
-// Domains that need resolution
-const DLPROTECT_DOMAINS = [
-  'dl-protect.link',
-  'dl-protect.net',
-  'dl-protect.org',
-];
+// Pattern to match dl-protect domains with any TLD (dl-protect.link, dl-protect.xyz, etc.)
+const DLPROTECT_PATTERN = /^(www\.)?dl-protect\.[a-z]+$/i;
 
 /**
- * Check if URL is a dl-protect link
+ * Check if URL is a dl-protect link (any TLD)
  */
 export function isDlProtectLink(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return DLPROTECT_DOMAINS.some(domain => parsed.hostname.includes(domain));
+    return DLPROTECT_PATTERN.test(parsed.hostname);
   } catch {
     return false;
   }
