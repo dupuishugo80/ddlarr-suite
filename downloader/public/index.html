@@ -729,7 +729,10 @@
       const el = document.getElementById('message');
       el.className = 'message message-' + type;
       el.textContent = text;
-      setTimeout(() => el.textContent = '', 5000);
+      setTimeout(() => {
+        el.textContent = '';
+        el.className = '';
+      }, 5000);
     }
 
     async function fetchDownloads() {
