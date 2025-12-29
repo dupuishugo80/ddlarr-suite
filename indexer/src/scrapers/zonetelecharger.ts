@@ -164,12 +164,6 @@ export class ZoneTelechargerScraper implements BaseScraper {
       try {
         const html = await fetchHtml(pageUrl);
         const results = this.parseSearchResults(html, contentType, params, validationQuery);
-
-        if (results.length === 0) {
-          console.log(`[ZoneTelecharger] No results on page ${currentPage}, stopping pagination`);
-          break;
-        }
-
         allResults.push(...results);
 
         // Vérifie s'il y a une page suivante (div.navigation a[rel="next"])
