@@ -138,11 +138,16 @@ export class CurlClient implements DownloadClient {
         const output = data.toString();
         // Parse progress from curl's progress bar output
         // Format: ###                                                          5.2%
-        const progressMatch = output.match(/(\d+\.?\d*)%/);
-        if (progressMatch) {
-          lastProgress = parseFloat(progressMatch[1]);
-          progress.progress = lastProgress;
-          console.log(`[curl] Progress: ${lastProgress.toFixed(1)}%`);
+        // Match all percentages and take the highest valid one
+        const progressMatches = output.matchAll(/(\d+\.?\d*)%/g);
+        for (const match of progressMatches) {
+          const newProgress = parseFloat(match[1]);
+          // Only update if progress increases (avoid parsing artifacts)
+          if (newProgress > lastProgress && newProgress <= 100) {
+            lastProgress = newProgress;
+            progress.progress = lastProgress;
+            console.log(`[curl] Progress: ${lastProgress.toFixed(1)}%`);
+          }
         }
       });
 

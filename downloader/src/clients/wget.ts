@@ -118,15 +118,22 @@ export class WgetClient implements DownloadClient {
         url,
       ]);
 
+      let lastProgress = 0;
+
       proc.stderr.on('data', (data: Buffer) => {
         const output = data.toString();
 
         // Parse progress from wget output
         // Format: 50% [======>                    ] 1,234,567   500K/s
-        const progressMatch = output.match(/(\d+)%/);
-        if (progressMatch) {
-          progress.progress = parseInt(progressMatch[1], 10);
-          console.log(`[wget] Progress: ${progress.progress}%`);
+        const progressMatches = output.matchAll(/(\d+)%/g);
+        for (const match of progressMatches) {
+          const newProgress = parseInt(match[1], 10);
+          // Only update if progress increases (avoid parsing artifacts)
+          if (newProgress > lastProgress && newProgress <= 100) {
+            lastProgress = newProgress;
+            progress.progress = lastProgress;
+            console.log(`[wget] Progress: ${lastProgress}%`);
+          }
         }
 
         // Parse speed
