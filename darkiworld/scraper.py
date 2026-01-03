@@ -7,15 +7,16 @@ import os
 import time
 import re
 import logging
+import threading
 from datetime import datetime
 from urllib.parse import urlparse, quote, unquote
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-from config import DARKIWORLD_URL, ALLOWED_HOSTER
-from driver import get_driver
-from cookies import set_cookies
+from config import DARKIWORLD_URL, ALLOWED_HOSTER, DARKIWORLD_EMAIL, DARKIWORLD_PASSWORD
+from driver_sb import get_driver, close_driver
+from auth_sb import ensure_authenticated
 from utils import parse_relative_date
 from debrid import debrid_links
 
@@ -157,12 +158,12 @@ def filter_and_sort_releases(releases: list, allowed_hosters: list, limit: int =
     return result
 
 
-def get_download_links(driver, release_ids: list) -> dict:
+def get_download_links(sb, release_ids: list) -> dict:
     """
     Get download links for releases by calling the API
 
     Args:
-        driver: Selenium driver with cookies
+        sb: SeleniumBase instance with cookies
         release_ids: List of release IDs to get links for
 
     Returns:
@@ -174,8 +175,8 @@ def get_download_links(driver, release_ids: list) -> dict:
         try:
             logger.info(f"Getting download link for release {release_id}...")
 
-            # Use JavaScript fetch to call the API with existing cookies
-            result = driver.execute_script(f"""
+            # Use JavaScript fetch to call the API with existing cookies (using sb instead of driver)
+            result = sb.execute_script(f"""
                 return fetch('https://darkiworld15.com/api/v1/liens/{release_id}/download', {{
                     method: 'POST',
                     headers: {{
@@ -216,26 +217,23 @@ def scrape_darkiworld(data: dict = None) -> dict:
         data = {}
 
     try:
-        driver = get_driver()
+        sb = get_driver()
+        driver = sb.driver  # Get underlying Selenium driver for compatibility
         logger.info(f"Opening {DARKIWORLD_URL}")
 
-        # Navigate to the page first (required to set cookies for the domain)
-        driver.get(DARKIWORLD_URL)
+        # Ensure authentication (load cookies or login if necessary)
+        logger.info("Authenticating...")
+        authenticated = ensure_authenticated(sb, DARKIWORLD_URL, DARKIWORLD_EMAIL, DARKIWORLD_PASSWORD)
 
-        # Wait for initial page load
-        time.sleep(3)
+        if not authenticated:
+            logger.error("❌ Authentication failed - cannot proceed")
+            return {
+                'success': False,
+                'error': 'Authentication failed',
+                'authenticated': False
+            }
 
-        # Set authentication cookies EARLY (before Cloudflare resolves)
-        logger.info("Setting authentication cookies...")
-        cookies_set = set_cookies(driver, DARKIWORLD_URL)
-
-        # Reload page to apply cookies immediately
-        if cookies_set > 0:
-            logger.info("Reloading page with authentication cookies...")
-            driver.get(DARKIWORLD_URL)
-
-        # Wait for Cloudflare to resolve (if present)
-        time.sleep(5)
+        logger.info("✅ Authentication successful")
 
         # Human-like behavior: random mouse movements
         try:
@@ -269,7 +267,7 @@ def scrape_darkiworld(data: dict = None) -> dict:
 
         try:
             # Wait a bit for the username element to appear if logged in
-            time.sleep(2)
+            time.sleep(1)
 
             # Check for login/register buttons (indicates NOT logged in)
             has_login_buttons = driver.execute_script("""
@@ -368,13 +366,11 @@ def scrape_darkiworld(data: dict = None) -> dict:
 
                 if i % 5 == 0:
                     logger.info(f"Still waiting for content to load... ({i+1}s)")
-                time.sleep(1)
             except Exception as e:
                 logger.debug(f"Error checking noscript: {e}")
                 break
 
-        # Additional wait for dynamic content to fully render
-        time.sleep(3)
+        time.sleep(1)
 
         # Check if page content has loaded beyond noscript
         try:
@@ -568,60 +564,41 @@ def search_darkiworld(data: dict) -> dict:
         }
 
     try:
-        driver = get_driver()
+        sb = get_driver()
+        driver = sb.driver  # Keep reference for compatibility with existing code
         logger.info(f"🔍 Searching for: '{query}'")
 
-        # Navigate to main page first to set cookies
-        driver.get(DARKIWORLD_URL)
-        time.sleep(3)
+        # Ensure authentication (load cookies or login if necessary)
+        logger.info("Authenticating...")
+        authenticated = ensure_authenticated(sb, DARKIWORLD_URL, DARKIWORLD_EMAIL, DARKIWORLD_PASSWORD)
 
-        # Set authentication cookies
-        logger.info("Setting authentication cookies...")
-        cookies_set = set_cookies(driver, DARKIWORLD_URL)
-
-        if cookies_set > 0:
-            driver.get(DARKIWORLD_URL)
-            time.sleep(2)
-
-        # Check if authenticated
-        logger.info("Verifying authentication...")
-        has_login_buttons = driver.execute_script("""
-            const bodyText = document.body.innerText.toLowerCase();
-            return bodyText.includes("s'inscrire") && bodyText.includes("connexion");
-        """)
-
-        if has_login_buttons:
-            logger.error("❌ NOT AUTHENTICATED - Cannot perform search")
+        if not authenticated:
+            logger.error("❌ Authentication failed - cannot perform search")
             return {
                 'success': False,
-                'error': 'Not authenticated - login required to search',
+                'error': 'Authentication failed - login required to search',
                 'authenticated': False
             }
 
-        logger.info("✓ Authenticated - proceeding with search")
+        logger.info("✅ Authenticated - proceeding with search")
 
         # Build search URL with encoded query
         encoded_query = quote(query)
         search_url = f"{DARKIWORLD_URL}search/{encoded_query}"
         logger.info(f"Navigating to search page: {search_url}")
 
-        driver.get(search_url)
-        time.sleep(3)
+        # Use SeleniumBase's open method instead of driver.get()
+        sb.open(search_url)
 
-        # Wait for page to load
-        WebDriverWait(driver, 10).until(
-            lambda d: d.execute_script("return document.readyState") == "complete"
-        )
+        # Wait for page to load (using sb instead of driver)
+        sb.wait_for_ready_state_complete()
 
         # Find the grid and first result
         logger.info("Looking for search results grid...")
         try:
-            grid = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((
-                    By.CSS_SELECTOR,
-                    'div.grid.gap-24.content-grid-portrait'
-                ))
-            )
+            # Use sb.wait_for_element instead of WebDriverWait
+            sb.wait_for_element('div.grid.gap-24.content-grid-portrait', timeout=10)
+            grid = sb.find_element('div.grid.gap-24.content-grid-portrait')
             logger.info("✓ Found search results grid")
         except Exception as e:
             logger.error(f"❌ Search results grid not found: {e}")
@@ -670,8 +647,8 @@ def search_darkiworld(data: dict) -> dict:
         try:
             api_url = f"https://darkiworld15.com/api/v1/liens?perPage=15&title_id={media_id}&loader=linksdl&season=1&filters=&paginate=preferLengthAware"
 
-            # Use JavaScript fetch to call API with existing cookies
-            api_response = driver.execute_script(f"""
+            # Use JavaScript fetch to call API with existing cookies (using sb instead of driver)
+            api_response = sb.execute_script(f"""
                 return fetch('{api_url}', {{
                     method: 'GET',
                     headers: {{
@@ -737,7 +714,7 @@ def search_darkiworld(data: dict) -> dict:
         # Get download links for filtered releases
         release_ids = [r['id'] for r in filtered_releases]
         logger.info(f"Getting download links for {len(release_ids)} releases...")
-        download_links = get_download_links(driver, release_ids)
+        download_links = get_download_links(sb, release_ids)
 
         # Debrid links using AllDebrid
         debrided_links = debrid_links(download_links)
@@ -775,7 +752,7 @@ def search_darkiworld(data: dict) -> dict:
 
         logger.info(f"✅ {len(valid_releases)} releases with valid debrided links")
 
-        return {
+        result = {
             'success': True,
             'query': query,
             'media_id': media_id,
@@ -789,8 +766,37 @@ def search_darkiworld(data: dict) -> dict:
             'authenticated': True
         }
 
+        # Close driver in background thread (non-blocking)
+        def close_driver_async():
+            logger.info("Closing Chrome driver in background...")
+            try:
+                close_driver()
+                logger.info("✓ Driver closed successfully")
+            except Exception as e:
+                logger.warning(f"Error closing driver: {e}")
+
+        thread = threading.Thread(target=close_driver_async, daemon=True)
+        thread.start()
+
+        # Return result immediately without waiting for driver to close
+        return result
+
     except Exception as e:
         logger.error(f"Error in search_darkiworld: {str(e)}", exc_info=True)
+
+        # Close driver in background thread on error too
+        def close_driver_async():
+            logger.info("Closing Chrome driver in background after error...")
+            try:
+                close_driver()
+                logger.info("✓ Driver closed after error")
+            except Exception as e2:
+                logger.warning(f"Error closing driver: {e2}")
+
+        thread = threading.Thread(target=close_driver_async, daemon=True)
+        thread.start()
+
+        # Return error immediately
         return {
             'success': False,
             'error': str(e),

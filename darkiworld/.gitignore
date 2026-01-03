@@ -1,6 +1,13 @@
 # Environment variables
 .env
 
+# Authentication cookies
+cookies.json
+
+# Output directory
+output/
+downloaded_files/
+
 # Python
 __pycache__/
 *.py[cod]
