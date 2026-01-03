@@ -2,6 +2,12 @@
 
 Indexeur Torznab pour sites DDL (Direct Download Links), compatible avec Prowlarr, Sonarr et Radarr.
 
+
+## Soutien
+☕ Après minuit, je code. Je bois du café — pas d’eau (c’est dangereux pour les gremlins).  
+[![Buy Me a Coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=☕&slug=z.m.g&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff)](https://www.buymeacoffee.com/z.m.g)
+
+
 ## Architecture
 
 Le projet se compose de 3 services Docker :
