@@ -14,9 +14,52 @@ import type { Download, DownloadState } from '../types/download.js';
 /**
  * Get the real filename from a URL by checking Content-Disposition header
  */
+// Known error URL patterns that indicate the file is not available
+const ERROR_URL_PATTERNS = [
+  '/article/premium',      // Rapidgator
+  '/error',                // Generic
+  '/404',                  // Generic
+  '/not-found',            // Generic
+  '/file-not-found',       // Generic
+  '/deleted',              // Generic
+  '/removed',              // Generic
+  '/unavailable',          // Generic
+];
+
+/**
+ * Check if a URL is an error/redirect page
+ */
+function isErrorUrl(url: string): boolean {
+  try {
+    const urlObj = new URL(url);
+    const path = urlObj.pathname.toLowerCase();
+    return ERROR_URL_PATTERNS.some(pattern => path.includes(pattern));
+  } catch {
+    return false;
+  }
+}
+
 async function getRealFilename(url: string, fallbackName: string): Promise<string> {
   try {
     const response = await fetch(url, { method: 'HEAD', redirect: 'follow' });
+
+    // Check for HTTP errors (404, etc.) - throw to be caught by caller
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    // Check if we were redirected to an error page (e.g., rapidgator premium page)
+    const finalUrl = response.url;
+    if (isErrorUrl(finalUrl)) {
+      throw new Error(`HTTP redirect to error page: ${finalUrl}`);
+    }
+
+    // Check Content-Type - if it's HTML when we expect a file, it's probably an error page
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('text/html')) {
+      // Some hosters return HTML error pages with 200 status
+      throw new Error(`HTTP invalid content-type: ${contentType} (expected file, got HTML)`);
+    }
 
     // Check Content-Disposition header for filename
     const contentDisposition = response.headers.get('content-disposition');
@@ -39,7 +82,6 @@ async function getRealFilename(url: string, fallbackName: string): Promise<strin
     }
 
     // Try to get filename from final URL (after redirects)
-    const finalUrl = response.url;
     const urlPath = new URL(finalUrl).pathname;
     const urlFilename = decodeURIComponent(urlPath.split('/').pop() || '');
     if (urlFilename && urlFilename.includes('.')) {
@@ -47,6 +89,10 @@ async function getRealFilename(url: string, fallbackName: string): Promise<strin
       return urlFilename;
     }
   } catch (error: any) {
+    // Re-throw HTTP errors so they can be handled by the caller
+    if (error.message.startsWith('HTTP ')) {
+      throw error;
+    }
     console.log(`[DownloadManager] Could not get real filename: ${error.message}`);
   }
 
@@ -454,6 +500,13 @@ class DownloadManager {
           this.processQueue();
           return;
         }
+        // Check if redirected to an error page (e.g., rapidgator premium page)
+        if (isErrorUrl(response.url)) {
+          repository.updateDownloadState(hash, 'error', `Lien hoster invalide (redirect vers ${response.url})`);
+          console.error(`[DownloadManager] Hoster link redirected to error page: ${response.url}`);
+          this.processQueue();
+          return;
+        }
       } catch (error: any) {
         // HEAD request might fail for some hosts, continue anyway
         console.log(`[DownloadManager] HEAD request failed, continuing: ${error.message}`);
@@ -481,7 +534,8 @@ class DownloadManager {
       }
 
       // Get real filename from debrid link (with proper extension)
-      repository.updateDownloadStatusMessage(hash, 'Récupération du nom de fichier...');
+      // This also validates the debrid link (checks for 404, etc.)
+      repository.updateDownloadStatusMessage(hash, 'Vérification du lien débridé...');
       let actualName = name;
       try {
         actualName = await getRealFilename(link, name);
@@ -490,6 +544,14 @@ class DownloadManager {
           console.log(`[DownloadManager] Updated filename: ${name} -> ${actualName}`);
         }
       } catch (error: any) {
+        // Check if it's an HTTP error (like 404)
+        if (error.message.startsWith('HTTP ')) {
+          repository.updateDownloadState(hash, 'error', `Lien introuvable: ${error.message}`);
+          console.error(`[DownloadManager] Debrid link error: ${error.message}`);
+          this.processQueue();
+          return;
+        }
+        // Other errors (like network issues or hosts not supporting HEAD) - continue anyway
         console.log(`[DownloadManager] Could not get real filename, using original: ${error.message}`);
       }
 
