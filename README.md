@@ -148,6 +148,7 @@ docker compose --profile qbittorrent up -d
 | `TEMP_PATH` | Dossier temporaire pour les téléchargements en cours | /downloads-temp |
 | `MAX_CONCURRENT_DOWNLOADS` | Nombre de téléchargements simultanés | 3 |
 | `AUTO_EXTRACT_ARCHIVE` | Extraire automatiquement les archives (zip, rar, 7z) | 1 (activé) |
+| `AUTO_REMOVE_COMPLETED_AFTER` | Supprimer les téléchargements terminés après X minutes (0 = désactivé) | 0 |
 | `ALLDEBRID_ENABLED` | Activer AllDebrid | false |
 | `ALLDEBRID_API_KEY` | Clé API AllDebrid | - |
 | `REALDEBRID_ENABLED` | Activer RealDebrid | false |

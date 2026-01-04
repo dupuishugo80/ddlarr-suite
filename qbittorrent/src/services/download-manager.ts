@@ -618,7 +618,47 @@ class DownloadManager {
     // Start processing queue
     this.processQueue();
   }
+
+  /**
+   * Start auto-cleanup timer for completed downloads
+   */
+  startAutoCleanup(): void {
+    const config = getConfig();
+    if (config.autoRemoveCompletedAfter <= 0) {
+      console.log('[DownloadManager] Auto-cleanup disabled (AUTO_REMOVE_COMPLETED_AFTER=0)');
+      return;
+    }
+
+    console.log(`[DownloadManager] Auto-cleanup enabled: removing completed downloads after ${config.autoRemoveCompletedAfter} minutes`);
+
+    // Check every minute
+    setInterval(() => {
+      this.cleanupCompletedDownloads();
+    }, 60 * 1000);
+  }
+
+  /**
+   * Remove completed downloads older than configured time
+   */
+  private async cleanupCompletedDownloads(): Promise<void> {
+    const config = getConfig();
+    if (config.autoRemoveCompletedAfter <= 0) return;
+
+    const maxAgeMs = config.autoRemoveCompletedAfter * 60 * 1000;
+    const now = Date.now();
+    const completedDownloads = repository.getDownloadsByState('completed');
+
+    for (const download of completedDownloads) {
+      if (download.completedAt && (now - download.completedAt) > maxAgeMs) {
+        console.log(`[DownloadManager] Auto-removing completed download: ${download.name} (completed ${Math.round((now - download.completedAt) / 60000)} minutes ago)`);
+        repository.deleteDownload(download.hash);
+      }
+    }
+  }
 }
 
 // Singleton instance
 export const downloadManager = new DownloadManager();
+
+// Start auto-cleanup on module load
+downloadManager.startAutoCleanup();
