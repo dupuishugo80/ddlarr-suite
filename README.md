@@ -5,7 +5,7 @@ Indexeur Torznab pour sites DDL (Direct Download Links), compatible avec Prowlar
 
 ## Soutien
 ☕ Après minuit, je code. Je bois du café — pas d’eau (c’est dangereux pour les gremlins).  
-[![Buy Me a Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/z.m.g)
+<a href="https://www.buymeacoffee.com/z.m.g"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="40"></a>
 
 
 ## Architecture
