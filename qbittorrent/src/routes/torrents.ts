@@ -11,7 +11,7 @@ function mapState(state: DownloadState): QBTorrentState {
     case 'checking': return 'checkingDL';
     case 'downloading': return 'downloading';
     case 'paused': return 'pausedDL';
-    case 'completed': return 'pausedUP'; // Must be pausedUP or stoppedUP for Radarr/Sonarr to remove
+    case 'completed': return 'stoppedUP'; // Must be pausedUP or stoppedUP for Radarr/Sonarr to remove
     case 'error': return 'error';
     case 'stalled': return 'stalledDL';
     default: return 'unknown';
