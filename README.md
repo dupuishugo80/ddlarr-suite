@@ -77,23 +77,29 @@ ALLDEBRID_API_KEY=votre_cle_api
 
 ### 3. Lancer les services
 
+Choisir une des deux options :
+
+**Option A - DDL-qBittorrent (Recommandé) :**
 ```bash
-docker-compose up -d
+docker compose --profile qbittorrent up -d
 ```
 
-### 4. Configurer le downloader
+**Option B - Blackhole + Client externe :**
+```bash
+docker compose --profile blackhole up -d
+```
 
-Accéder à l'interface web : http://localhost:9118
-
-Configurer votre client de téléchargement (JDownloader, aria2, ou Download Station).
+> **Note** : `docker compose up -d` (sans profil) ne démarre que les services de base (indexeur + résolveur). Vous devez spécifier un profil pour avoir un système de téléchargement complet.
 
 ## Configuration avec DDL-qBittorrent (Option A - Recommandé)
 
 ### Lancer les services
 
 ```bash
-docker-compose up -d ddl-torznab dlprotect-resolver ddl-qbittorrent
+docker compose --profile qbittorrent up -d
 ```
+
+> Cette commande démarre uniquement : `ddl-torznab`, `dlprotect-resolver` et `ddl-qbittorrent`
 
 ### Configuration de Radarr/Sonarr
 
@@ -169,8 +175,10 @@ docker-compose up -d ddl-torznab dlprotect-resolver ddl-qbittorrent
 ### Lancer les services
 
 ```bash
-docker-compose up -d ddl-torznab dlprotect-resolver ddl-downloader
+docker compose --profile blackhole up -d
 ```
+
+> Cette commande démarre uniquement : `ddl-torznab`, `dlprotect-resolver` et `ddl-downloader`
 
 ### Configuration de Radarr
 
