@@ -64,6 +64,7 @@ async function main() {
 
     const sid = request.cookies.SID;
     if (!validateSession(sid)) {
+      console.log(`[Auth] 403 Forbidden: ${request.method} ${request.url} (invalid session)`);
       return reply.status(403).send('Forbidden');
     }
   });
