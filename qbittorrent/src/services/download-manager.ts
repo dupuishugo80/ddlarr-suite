@@ -450,6 +450,10 @@ class DownloadManager {
             repository.updateDownloadStatusMessage(hash, `Déplacement vers ${finalPath}...`);
             console.log(`[DownloadManager] Moving: ${name} -> ${finalPath}`);
           },
+          onExtracting: (finalPath) => {
+            repository.updateDownloadStatusMessage(hash, 'Extraction en cours...');
+            console.log(`[DownloadManager] Extracting: ${name}`);
+          },
           onComplete: (finalPath) => {
             repository.updateDownloadState(hash, 'completed');
             console.log(`[DownloadManager] Completed: ${name} -> ${finalPath}`);
@@ -571,6 +575,10 @@ class DownloadManager {
         onMoving: (finalPath) => {
           repository.updateDownloadStatusMessage(hash, `Déplacement vers ${finalPath}...`);
           console.log(`[DownloadManager] Moving: ${name} -> ${finalPath}`);
+        },
+        onExtracting: (finalPath) => {
+          repository.updateDownloadStatusMessage(hash, 'Extraction en cours...');
+          console.log(`[DownloadManager] Extracting: ${name}`);
         },
         onComplete: (finalPath) => {
           repository.updateDownloadState(hash, 'completed');

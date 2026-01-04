@@ -5,6 +5,7 @@ export interface Config {
   tempPath: string;
   dlprotectServiceUrl: string;
   maxConcurrentDownloads: number;
+  autoExtractArchive: boolean;
   auth: {
     username: string;
     password: string;
@@ -36,6 +37,7 @@ export function getConfig(): Config {
       tempPath: process.env.TEMP_PATH || '/downloads-temp',
       dlprotectServiceUrl: process.env.DLPROTECT_SERVICE_URL || 'http://dlprotect-resolver:5000',
       maxConcurrentDownloads: parseInt(process.env.MAX_CONCURRENT_DOWNLOADS || '3', 10),
+      autoExtractArchive: process.env.AUTO_EXTRACT_ARCHIVE !== '0',  // Enabled by default
       auth: {
         username: process.env.QB_USERNAME || 'admin',
         password: process.env.QB_PASSWORD || 'adminadmin',

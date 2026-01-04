@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getConfig } from '../config.js';
 import type { DownloadProgress } from '../types/download.js';
+import { isArchive, extractArchive, deleteFile } from './extractor.js';
 
 interface ActiveDownload {
   hash: string;
@@ -23,6 +24,7 @@ interface ActiveDownload {
   onError?: (error: Error) => void;
   onPaused?: () => void;
   onMoving?: (finalPath: string) => void;
+  onExtracting?: (finalPath: string) => void;
 }
 
 // Track active curl processes
@@ -52,6 +54,7 @@ export function startDownload(
     onError?: (error: Error) => void;
     onPaused?: () => void;
     onMoving?: (finalPath: string) => void;  // Called when moving file to final destination
+    onExtracting?: (finalPath: string) => void;  // Called when extracting archive
   },
   knownTotalSize?: number,  // Pass the known total size from database for resume
   savePath?: string  // Custom save path (e.g., with category subfolder)
@@ -187,7 +190,36 @@ export function startDownload(
       console.log(`[Downloader] Moving file to: ${finalPath}`);
 
       moveFileAsync(actualTempPath, finalPath)
-        .then(() => {
+        .then(async () => {
+          console.log(`[Downloader] File moved to: ${finalPath}`);
+
+          // Check if we need to extract the archive
+          const config = getConfig();
+          if (config.autoExtractArchive && isArchive(filename)) {
+            console.log(`[Downloader] Archive detected, extracting: ${finalPath}`);
+            download.onExtracting?.(finalPath);
+
+            try {
+              const destDir = path.dirname(finalPath);
+              await extractArchive(finalPath, destDir);
+
+              // Delete the archive after successful extraction
+              try {
+                await deleteFile(finalPath);
+              } catch (deleteError: any) {
+                // Log but don't fail if we can't delete the archive
+                console.warn(`[Downloader] Could not delete archive after extraction: ${deleteError.message}`);
+              }
+
+              console.log(`[Downloader] Extraction complete: ${finalPath}`);
+            } catch (extractError: any) {
+              console.error(`[Downloader] Extraction failed: ${extractError.message}`);
+              download.onError?.(new Error(`Extraction failed: ${extractError.message}`));
+              activeDownloads.delete(hash);
+              return;
+            }
+          }
+
           console.log(`[Downloader] Download complete: ${finalPath}`);
           download.progress = 100;
           download.onComplete?.(finalPath);

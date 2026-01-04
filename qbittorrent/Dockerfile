@@ -19,8 +19,8 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 
-# Install curl for downloads
-RUN apk add --no-cache curl wget
+# Install curl for downloads and extraction tools
+RUN apk add --no-cache curl wget unzip p7zip unrar
 
 # Copy built files
 COPY --from=backend-builder /app/dist ./dist
@@ -36,6 +36,7 @@ ENV PORT=8080
 ENV DATA_PATH=/data
 ENV DOWNLOAD_PATH=/downloads
 ENV TEMP_PATH=/downloads-temp
+ENV AUTO_EXTRACT_ARCHIVE=1
 
 EXPOSE 8080
 
