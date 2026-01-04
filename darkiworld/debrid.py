@@ -5,6 +5,7 @@ Handles link debriding via AllDebrid API.
 
 import logging
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from config import ALLDEBRID_API_KEY, ALLDEBRID_API_URL
 
@@ -68,13 +69,14 @@ def check_link_availability(link: str) -> bool:
         return False
 
 
-def check_links_and_get_filenames(links: dict) -> tuple[dict, dict]:
+def check_links_and_get_filenames(links: dict, chunk_size: int = 10) -> tuple[dict, dict]:
     """
-    Combined function: Check availability AND get exact filenames in ONE batch AllDebrid API call
-    This is more efficient than calling check_links_availability() and get_exact_filenames_from_alldebrid_batch() separately
+    Combined function: Check availability AND get exact filenames via AllDebrid API
+    Uses chunked batch calls to avoid timeouts on large requests
     
     Args:
         links: Dictionary mapping release_id -> download link
+        chunk_size: Number of links per AllDebrid batch call (default 10)
         
     Returns:
         Tuple of (available_links, exact_filenames):
@@ -86,77 +88,133 @@ def check_links_and_get_filenames(links: dict) -> tuple[dict, dict]:
 
     # Try using AllDebrid batch API first (much more efficient)
     if ALLDEBRID_API_KEY:
-        logger.info(f"🔍 Checking availability AND getting filenames for {len(links)} links in ONE AllDebrid batch call...")
+        # Create reverse mapping: link -> release_id
+        link_to_id = {link: release_id for release_id, link in links.items()}
+        links_list = list(links.values())
         
-        try:
-            # Prepare form data with all links
-            links_list = list(links.values())
-            form_data = [('link[]', link) for link in links_list]
+        # Split into chunks
+        chunks = [links_list[i:i + chunk_size] for i in range(0, len(links_list), chunk_size)]
+        logger.info(f"🔍 Checking {len(links)} links via AllDebrid in {len(chunks)} chunk(s) of max {chunk_size}...")
+        
+        all_available_links = {}
+        all_exact_filenames = {}
+        failed_links = []  # Links that failed in AllDebrid (for fallback)
+        
+        def process_chunk(chunk_links: list) -> tuple[dict, dict, list]:
+            """Process a single chunk of links via AllDebrid API"""
+            chunk_available = {}
+            chunk_filenames = {}
+            chunk_failed = []
             
-            # Create reverse mapping: link -> release_id
-            link_to_id = {link: release_id for release_id, link in links.items()}
-            
-            # Call AllDebrid API ONCE for both availability and filenames
-            response = requests.post(
-                ALLDEBRID_INFOS_URL,
-                headers={
-                    'Authorization': f'Bearer {ALLDEBRID_API_KEY}',
-                    'Accept': 'application/json'
-                },
-                data=form_data,
-                timeout=30
-            )
-            
-            data = response.json()
-            
-            # Check for success
-            if data.get('status') == 'success':
-                available_links = {}
-                exact_filenames = {}
-                infos = data.get('data', {}).get('infos', [])
+            try:
+                form_data = [('link[]', link) for link in chunk_links]
                 
-                for info in infos:
-                    link = info.get('link')
-                    filename = info.get('filename')
-                    error = info.get('error')
+                response = requests.post(
+                    ALLDEBRID_INFOS_URL,
+                    headers={
+                        'Authorization': f'Bearer {ALLDEBRID_API_KEY}',
+                        'Accept': 'application/json'
+                    },
+                    data=form_data,
+                    timeout=30
+                )
+                
+                data = response.json()
+                
+                if data.get('status') == 'success':
+                    infos = data.get('data', {}).get('infos', [])
                     
-                    # Check if link is dead or has error
-                    if error:
-                        error_code = error.get('code')
-                        if error_code == 'LINK_DOWN':
-                            logger.debug(f"Link is dead: {link[:30]}...")
-                            continue
-                        logger.warning(f"Link error {error_code}: {link[:30]}...")
-                        # We skip available_links assignment for errors
-                        continue
-
-                    # If no error and we have the link, it is available
-                    if link and link in link_to_id:
-                        release_id = link_to_id[link]
-                        available_links[release_id] = link
+                    for info in infos:
+                        link = info.get('link')
+                        filename = info.get('filename')
+                        error = info.get('error')
                         
-                        # Also extract filename if available
-                        if filename:
-                            name_without_ext = filename.rsplit('.', 1)[0] if '.' in filename else filename
-                            exact_filenames[link] = name_without_ext
-                
-                logger.info(f"✅ {len(available_links)}/{len(links)} links available, {len(exact_filenames)} filenames retrieved (ONE batch call)")
-                return available_links, exact_filenames
-            else:
-                logger.warning(f"AllDebrid batch check failed, falling back to individual checks")
-                
-        except Exception as e:
-            logger.warning(f"AllDebrid batch check error: {e}, falling back to individual checks")
+                        if error:
+                            error_code = error.get('code')
+                            if error_code == 'LINK_DOWN':
+                                logger.debug(f"Link is dead: {link[:30]}...")
+                            else:
+                                logger.warning(f"Link error {error_code}: {link[:30]}...")
+                            continue
+
+                        if link and link in link_to_id:
+                            release_id = link_to_id[link]
+                            chunk_available[release_id] = link
+                            
+                            if filename:
+                                name_without_ext = filename.rsplit('.', 1)[0] if '.' in filename else filename
+                                chunk_filenames[link] = name_without_ext
+                else:
+                    # Batch failed, add all links to failed list for fallback
+                    chunk_failed = chunk_links
+                    
+            except Exception as e:
+                logger.warning(f"AllDebrid chunk error: {e}")
+                chunk_failed = chunk_links
+            
+            return chunk_available, chunk_filenames, chunk_failed
+        
+        # Process chunks in parallel (max 3 concurrent to avoid rate limiting)
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {executor.submit(process_chunk, chunk): chunk for chunk in chunks}
+            
+            for future in as_completed(futures):
+                try:
+                    chunk_available, chunk_filenames, chunk_failed = future.result()
+                    all_available_links.update(chunk_available)
+                    all_exact_filenames.update(chunk_filenames)
+                    failed_links.extend(chunk_failed)
+                except Exception as e:
+                    logger.error(f"Error processing chunk: {e}")
+                    failed_links.extend(futures[future])
+        
+        # If some chunks failed, do fallback for those links only
+        if failed_links:
+            logger.info(f"⚠️ {len(failed_links)} links need fallback check...")
+            fallback_links = {link_to_id[link]: link for link in failed_links if link in link_to_id}
+            fallback_available, _ = _check_links_parallel(fallback_links)
+            all_available_links.update(fallback_available)
+        
+        logger.info(f"✅ {len(all_available_links)}/{len(links)} links available, {len(all_exact_filenames)} filenames retrieved")
+        return all_available_links, all_exact_filenames
     
-    # Fallback: individual HTTP checks (slower, no exact filenames)
-    logger.info(f"🔍 Checking availability of {len(links)} links individually (no AllDebrid)...")
+    # No AllDebrid API key: use parallel HTTP fallback
+    return _check_links_parallel(links)
+
+
+def _check_links_parallel(links: dict) -> tuple[dict, dict]:
+    """
+    Fallback: Check links availability in parallel via HTTP
+    
+    Args:
+        links: Dictionary mapping release_id -> download link
+        
+    Returns:
+        Tuple of (available_links, empty dict for filenames)
+    """
+    logger.info(f"🔍 Checking availability of {len(links)} links in parallel...")
     
     available_links = {}
-    for release_id, link in links.items():
-        if not link:
-            continue
-        if check_link_availability(link):
-            available_links[release_id] = link
     
-    logger.info(f"✅ {len(available_links)}/{len(links)} links are available (individual checks)")
+    def check_single_link(item):
+        """Check a single link and return (release_id, link, is_available)"""
+        release_id, link = item
+        if not link:
+            return (release_id, link, False)
+        return (release_id, link, check_link_availability(link))
+    
+    # Use ThreadPoolExecutor for parallel checks (max 5 concurrent to avoid rate limiting)
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(check_single_link, (rid, lnk)): rid for rid, lnk in links.items()}
+        
+        for future in as_completed(futures):
+            try:
+                release_id, link, is_available = future.result()
+                if is_available:
+                    available_links[release_id] = link
+            except Exception as e:
+                logger.error(f"Error in parallel check: {e}")
+    
+    logger.info(f"✅ {len(available_links)}/{len(links)} links are available (parallel checks)")
     return available_links, {}  # No filenames without AllDebrid
+
