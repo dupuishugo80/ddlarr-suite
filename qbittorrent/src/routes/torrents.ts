@@ -48,7 +48,7 @@ function toQBTorrentInfo(download: Download): QBTorrentInfo {
     num_complete: 0,
     num_leechs: 0,
     num_incomplete: 0,
-    ratio: 0,
+    ratio: download.state === 'completed' ? 999 : 0,  // High ratio for completed downloads
     eta,
     state: mapState(download.state),
     seq_dl: false,
@@ -78,7 +78,9 @@ function toQBTorrentInfo(download: Download): QBTorrentInfo {
     time_active: download.startedAt
       ? Math.floor((Date.now() - download.startedAt) / 1000)
       : 0,
-    seeding_time: 0,
+    seeding_time: download.state === 'completed' && download.completedAt
+      ? Math.floor((Date.now() - download.completedAt) / 1000)
+      : 0,
     content_path: `${download.savePath}/${download.name}`,
     magnet_uri: '',
     // Custom fields for DDL-qBittorrent UI
@@ -194,10 +196,12 @@ export async function torrentsRoutes(fastify: FastifyInstance): Promise<void> {
       time_elapsed: download.startedAt
         ? Math.floor((Date.now() - download.startedAt) / 1000)
         : 0,
-      seeding_time: 0,
+      seeding_time: download.state === 'completed' && download.completedAt
+        ? Math.floor((Date.now() - download.completedAt) / 1000)
+        : 0,
       nb_connections: 0,
       nb_connections_limit: 0,
-      share_ratio: 0,
+      share_ratio: download.state === 'completed' ? 999 : 0,
       addition_date: Math.floor(download.addedAt / 1000),
       completion_date: download.completedAt ? Math.floor(download.completedAt / 1000) : -1,
       created_by: 'DDL-qBittorrent',
@@ -321,6 +325,8 @@ export async function torrentsRoutes(fastify: FastifyInstance): Promise<void> {
     const hashesParam = body.hashes || '';
     const deleteFiles = body.deleteFiles === 'true';
 
+    console.log(`[Torrents] Delete request received: hashes=${hashesParam}, deleteFiles=${deleteFiles}`);
+
     let hashes: string[];
     if (hashesParam === 'all') {
       hashes = downloadManager.getAll().map(d => d.hash);
@@ -329,6 +335,7 @@ export async function torrentsRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     await downloadManager.delete(hashes, deleteFiles);
+    console.log(`[Torrents] Deleted ${hashes.length} download(s)`);
     return reply.send();
   });
 
