@@ -10,6 +10,7 @@ import signal
 import sys
 import os
 import threading
+import time
 from flask import Flask
 from config import DARKIWORLD_URL, ALLOWED_HOSTER, PORT, DEBUG, DARKIWORLD_EMAIL, DARKIWORLD_PASSWORD, get_darkiworld_url
 from driver_sb import close_driver, get_driver
@@ -63,6 +64,7 @@ def startup_warmup():
     This allows pre-retrieving cookies to speed up future requests.
     """
     if DARKIWORLD_EMAIL and DARKIWORLD_PASSWORD:
+        time.sleep(5)
         logger.info("🚀 Automatic login enabled - authentication at startup...")
         try:
             sb = get_driver()
