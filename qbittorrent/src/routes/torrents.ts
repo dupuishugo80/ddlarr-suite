@@ -104,6 +104,7 @@ export async function torrentsRoutes(fastify: FastifyInstance): Promise<void> {
     };
 
     let downloads = downloadManager.getAll();
+    console.log(`[Torrents] GET /info filter=${query.filter || 'all'} hashes=${query.hashes || '-'} count=${downloads.length}`);
 
     // Filter by state
     if (query.filter && query.filter !== 'all') {
@@ -167,6 +168,7 @@ export async function torrentsRoutes(fastify: FastifyInstance): Promise<void> {
   // Get torrent properties
   fastify.get('/api/v2/torrents/properties', async (request: FastifyRequest, reply: FastifyReply) => {
     const query = request.query as { hash?: string };
+    console.log(`[Torrents] GET /properties hash=${query.hash}`);
     if (!query.hash) {
       return reply.status(400).send('Missing hash');
     }
@@ -292,6 +294,7 @@ export async function torrentsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post('/api/v2/torrents/pause', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as { hashes?: string };
     const hashesParam = body.hashes || '';
+    console.log(`[Torrents] POST /pause hashes=${hashesParam}`);
 
     let hashes: string[];
     if (hashesParam === 'all') {
@@ -308,6 +311,7 @@ export async function torrentsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post('/api/v2/torrents/resume', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as { hashes?: string };
     const hashesParam = body.hashes || '';
+    console.log(`[Torrents] POST /resume hashes=${hashesParam}`);
 
     let hashes: string[];
     if (hashesParam === 'all') {
@@ -343,6 +347,7 @@ export async function torrentsRoutes(fastify: FastifyInstance): Promise<void> {
   // Get torrent files
   fastify.get('/api/v2/torrents/files', async (request: FastifyRequest, reply: FastifyReply) => {
     const query = request.query as { hash?: string };
+    console.log(`[Torrents] GET /files hash=${query.hash}`);
     if (!query.hash) {
       return reply.status(400).send('Missing hash');
     }
@@ -372,6 +377,7 @@ export async function torrentsRoutes(fastify: FastifyInstance): Promise<void> {
 
   // Get categories
   fastify.get('/api/v2/torrents/categories', async (request: FastifyRequest, reply: FastifyReply) => {
+    console.log(`[Torrents] GET /categories`);
     const config = getConfig();
 
     // Get all unique categories from downloads

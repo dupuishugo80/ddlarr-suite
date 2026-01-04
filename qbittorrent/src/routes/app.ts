@@ -26,6 +26,7 @@ export async function appRoutes(fastify: FastifyInstance): Promise<void> {
 
   // Preferences
   fastify.get('/api/v2/app/preferences', async (_request: FastifyRequest, reply: FastifyReply) => {
+    console.log(`[App] GET /preferences`);
     const config = getConfig();
     return reply.send({
       save_path: config.downloadPath,

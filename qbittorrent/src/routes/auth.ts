@@ -7,6 +7,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     const body = request.body as { username?: string; password?: string };
     const username = body.username || '';
     const password = body.password || '';
+    console.log(`[Auth] POST /login user=${username}`);
 
     if (validateCredentials(username, password)) {
       const sid = createUserSession(username);
