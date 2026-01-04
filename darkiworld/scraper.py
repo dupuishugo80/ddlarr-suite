@@ -4,6 +4,8 @@ Contains main scraping and search functionality.
 """
 
 import os
+import base64
+import json
 import time
 import re
 import logging
@@ -565,8 +567,14 @@ def scrape_darkiworld(data: dict = None) -> dict:
 def search_darkiworld(data: dict) -> dict:
     """
     Search function for darkiworld - uses direct search URL and API
+    
+    Args:
+        data: Dictionary with 'name' (query) and optional 'type' ('movie' or 'series')
     """
     query = data.get('name', data.get('query', ''))
+    media_type = data.get('type', 'movie')  # Default to 'movie', can be 'series'
+    season = data.get('season')  # Optional: season number (from Sonarr)
+    ep = data.get('ep')  # Optional: episode number (from Sonarr)
 
     if not query:
         return {
@@ -577,7 +585,7 @@ def search_darkiworld(data: dict) -> dict:
     try:
         sb = get_driver()
         driver = sb.driver  # Keep reference for compatibility with existing code
-        logger.info(f"🔍 Searching for: '{query}'")
+        logger.info(f"🔍 Searching for: '{query}' (type: {media_type}, season: {season}, ep: {ep})")
 
         # Ensure authentication (load cookies or login if necessary)
         logger.info("Authenticating...")
@@ -593,26 +601,42 @@ def search_darkiworld(data: dict) -> dict:
 
         logger.info("✅ Authenticated - proceeding with search")
 
-        # Build search URL with encoded query
+        # Call Search API directly instead of navigating to search page
+        # This is faster and more reliable than parsing the HTML grid
         encoded_query = quote(query)
-        search_url = f"{DARKIWORLD_URL}search/{encoded_query}"
-        logger.info(f"Navigating to search page: {search_url}")
+        search_api_url = f"/api/v1/search/{encoded_query}?loader=searchPage"
+        logger.info(f"Calling search API: {search_api_url}")
 
-        # Use SeleniumBase's open method instead of driver.get()
-        sb.open(search_url)
-
-        # Wait for page to load (using sb instead of driver)
+        # Navigate to base URL first to have cookies context
+        sb.open(DARKIWORLD_URL)
         sb.wait_for_ready_state_complete()
 
-        # Find the grid and first result
-        logger.info("Looking for search results grid...")
-        try:
-            # Use sb.wait_for_element instead of WebDriverWait
-            sb.wait_for_element('div.grid.gap-24.content-grid-portrait', timeout=10)
-            grid = sb.find_element('div.grid.gap-24.content-grid-portrait')
-            logger.info("✓ Found search results grid")
-        except Exception as e:
-            logger.error(f"❌ Search results grid not found: {e}")
+        # Call the search API using JavaScript fetch with cookies
+        search_response = sb.execute_script(f"""
+            return fetch('{search_api_url}', {{
+                method: 'GET',
+                headers: {{
+                    'Accept': 'application/json'
+                }}
+            }})
+            .then(response => response.json())
+            .then(data => data)
+            .catch(error => ({{ error: error.toString() }}));
+        """)
+
+        if not search_response or 'error' in search_response:
+            error_msg = search_response.get('error', 'Unknown error') if search_response else 'No response'
+            logger.error(f"❌ Search API error: {error_msg}")
+            return {
+                'success': False,
+                'error': f'Search API error: {error_msg}',
+                'query': query,
+                'authenticated': True
+            }
+
+        results = search_response.get('results', [])
+        if not results:
+            logger.error("❌ No search results found")
             return {
                 'success': False,
                 'error': 'No search results found',
@@ -620,43 +644,77 @@ def search_darkiworld(data: dict) -> dict:
                 'authenticated': True
             }
 
-        # Get first result
-        try:
-            first_result = grid.find_element(By.CSS_SELECTOR, 'div > div')
+        logger.info(f"✓ Got {len(results)} results from search API")
 
-            # Extract title ID from href
-            link_elem = first_result.find_element(By.CSS_SELECTOR, 'a[href*="/titles/"]')
-            href = link_elem.get_attribute('href')
+        # Map requested type to API type values
+        # API types: 'movie', 'series', 'animes', 'ebook', etc.
+        # Note: 'animes' can be either animated movies (is_series=False) or animated series (is_series=True)
+        type_mapping = {
+            'movie': ['movie', 'animes'],  # Include animes for animated movies (e.g., Shrek)
+            'series': ['series', 'animes']  # Include animes for animated series
+        }
+        target_types = type_mapping.get(media_type, ['movie'])
 
-            # Parse ID from href like "/titles/161640/wake-up-dead-man-..."
-            match = re.search(r'/titles/(\d+)/', href)
-            if not match:
-                raise Exception(f"Could not extract ID from href: {href}")
+        # Find the best matching result based on type
+        # Priority: exact type match first, then any result
+        matching_result = None
+        
+        for result in results:
+            result_type = result.get('type', '')
+            is_series = result.get('is_series', False)
+            
+            # Check type match
+            if media_type == 'series':
+                # For series, match 'series', 'animes' with is_series=True
+                if result_type in target_types and is_series:
+                    matching_result = result
+                    logger.info(f"✓ Found matching series: '{result.get('name')}' (type: {result_type}, id: {result.get('id')})")
+                    break
+            else:
+                # For movies, match 'movie' or 'animes' with is_series=False
+                if result_type in target_types and not is_series:
+                    matching_result = result
+                    logger.info(f"✓ Found matching movie: '{result.get('name')}' (type: {result_type}, id: {result.get('id')})")
+                    break
 
-            media_id = match.group(1)
+        # Fallback to first result if no type match found
+        if not matching_result:
+            matching_result = results[0]
+            logger.warning(f"⚠️ No exact type match found, using first result: '{matching_result.get('name')}' (type: {matching_result.get('type')})")
 
-            # Try to get title from alt attribute or other sources
-            try:
-                img = first_result.find_element(By.TAG_NAME, 'img')
-                media_title = img.get_attribute('alt').replace('Poster for ', '')
-            except:
-                media_title = query  # Fallback to query
+        media_id = matching_result.get('id')
+        media_title = matching_result.get('name', query)
 
-            logger.info(f"✓ First result: '{media_title}' (ID: {media_id})")
-
-        except Exception as e:
-            logger.error(f"❌ Error extracting first result: {e}")
+        if not media_id:
+            logger.error("❌ Could not extract media ID from search result")
             return {
                 'success': False,
-                'error': f'Could not extract first result: {str(e)}',
+                'error': 'Could not extract media ID',
                 'query': query,
                 'authenticated': True
             }
 
+        logger.info(f"✓ Selected result: '{media_title}' (ID: {media_id}, type: {matching_result.get('type')})")
+
         # Call API to get releases
         logger.info(f"Fetching releases from API for title {media_id}...")
         try:
-            api_url = f"/api/v1/liens?perPage=60&title_id={media_id}&loader=linksdl&season=1&filters=&paginate=preferLengthAware"
+            # Use season parameter if provided, otherwise omit it
+            season_param = f"&season={season}" if season else ""
+            
+            # Build episode filter if specific episode is requested
+            if ep:
+                episode_filter = [{"key": "episode", "value": str(ep), "operator": "="}]
+                filter_json = json.dumps(episode_filter, separators=(',', ':'))
+                filter_b64 = base64.b64encode(filter_json.encode()).decode()
+                # URL-encode the base64 string (replace = with %3D)
+                filter_encoded = quote(filter_b64)
+                filters_param = f"&filters={filter_encoded}"
+                logger.info(f"🎯 Adding episode filter: {filter_json} -> {filter_encoded}")
+            else:
+                filters_param = "&filters="
+            
+            api_url = f"/api/v1/liens?perPage=100&title_id={media_id}&loader=linksdl{season_param}{filters_param}&paginate=preferLengthAware"
 
             # Use JavaScript fetch to call API with existing cookies (using sb instead of driver)
             api_response = sb.execute_script(f"""
@@ -703,7 +761,10 @@ def search_darkiworld(data: dict) -> dict:
                     'uploader': item.get('id_user'),
                     'added': item.get('created_at', ''),
                     'host': item['host']['name'] if item.get('host') else None,
-                    'views': item.get('view', 0)
+                    'views': item.get('view', 0),
+                    'full_saison': item.get('full_saison'),  # 1 = full season, 0 = single episode
+                    'episode': item.get('episode'),  # Episode number (if single episode)
+                    'saison': item.get('saison')  # Season number
                 }
 
                 releases.append(release)
@@ -713,6 +774,24 @@ def search_darkiworld(data: dict) -> dict:
                 continue
 
         logger.info(f"✅ Parsed {len(releases)} total releases")
+
+        # Filter by season/episode if requested
+        if ep and media_type == 'series':
+            # When specific episode is requested, only keep:
+            # - full_saison=0 (single episode) with matching episode number
+            try:
+                ep_num = int(ep)
+                before_count = len(releases)
+                releases = [r for r in releases if r.get('full_saison') == 0 and r.get('episode') == ep_num]
+                logger.info(f"🎯 Filtered {before_count} -> {len(releases)} releases for episode {ep_num}")
+            except ValueError:
+                logger.warning(f"⚠️ Invalid episode number: {ep}")
+        elif season and media_type == 'series' and not ep:
+            # When only season is requested (no specific episode), only keep full season packs
+            # Filter out individual episodes (full_saison=0)
+            before_count = len(releases)
+            releases = [r for r in releases if r.get('full_saison') == 1]
+            logger.info(f"📦 Filtered {before_count} -> {len(releases)} releases, keeping only full season packs")
 
         # Filter and sort releases
         # Fetch more candidates (50) than needed (25) to account for dead links
@@ -782,7 +861,7 @@ def search_darkiworld(data: dict) -> dict:
             'query': query,
             'media_id': media_id,
             'media_title': media_title,
-            'search_url': search_url,
+            'search_url': search_api_url,
             'total_releases': len(releases),
             'filtered_count': len(filtered_releases),
             'valid_count': len(valid_releases),

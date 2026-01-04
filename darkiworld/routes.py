@@ -40,8 +40,11 @@ def search():
                 'error': 'Parameter "name" or "query" is required'
             }), 400
 
-        logger.info(f"Search endpoint called with query: '{query}'")
-        result = search_darkiworld({'name': query})
+        media_type = data.get('type', 'movie')  # Default to movie, can be 'series'
+        season = data.get('season')  # Optional: season number for series
+        ep = data.get('ep')  # Optional: episode number for series
+        logger.info(f"Search endpoint called with query: '{query}', type: '{media_type}', season: {season}, ep: {ep}")
+        result = search_darkiworld({'name': query, 'type': media_type, 'season': season, 'ep': ep})
 
         logger.info(f"Search result success: {result.get('success')}, releases: {len(result.get('releases', []))}")
         status_code = 200 if result.get('success') else 400
