@@ -91,6 +91,14 @@ docker compose --profile blackhole up -d
 
 > **Note** : `docker compose up -d` (sans profil) ne démarre que les services de base (indexeur + résolveur). Vous devez spécifier un profil pour avoir un système de téléchargement complet.
 
+### 4. Arrêter les services
+
+Pour arrêter tous les services (incluant tous les profils) :
+
+```bash
+docker compose --profile qbittorrent --profile blackhole down
+```
+
 ## Configuration avec DDL-qBittorrent (Option A - Recommandé)
 
 ### Lancer les services
