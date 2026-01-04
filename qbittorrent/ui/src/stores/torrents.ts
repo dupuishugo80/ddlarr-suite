@@ -14,7 +14,7 @@ export const useTorrentsStore = defineStore('torrents', () => {
     return torrents.value.filter(t => {
       switch (filter.value) {
         case 'downloading': return t.state === 'downloading'
-        case 'completed': return t.state === 'uploading'
+        case 'completed': return t.state === 'uploading' || t.state === 'stoppedUP'
         case 'paused': return t.state === 'pausedDL' || t.state === 'pausedUP'
         case 'errored': return t.state === 'error'
         default: return true
@@ -25,7 +25,7 @@ export const useTorrentsStore = defineStore('torrents', () => {
   const stats = computed(() => ({
     total: torrents.value.length,
     downloading: torrents.value.filter(t => t.state === 'downloading').length,
-    completed: torrents.value.filter(t => t.state === 'uploading').length,
+    completed: torrents.value.filter(t => t.state === 'uploading' || t.state === 'stoppedUP').length,
     paused: torrents.value.filter(t => t.state.startsWith('paused')).length,
   }))
 
