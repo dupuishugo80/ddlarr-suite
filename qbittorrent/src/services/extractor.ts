@@ -105,7 +105,8 @@ export async function extractArchive(archivePath: string, destDir: string): Prom
         break;
 
       case 'rar':
-        await execCommand('unrar', ['x', '-o+', '-y', archivePath, destDir], destDir);
+        // Use bsdtar from libarchive-tools (unrar is not available in Alpine)
+        await execCommand('bsdtar', ['-xf', archivePath, '-C', destDir], destDir);
         break;
 
       case '7z':

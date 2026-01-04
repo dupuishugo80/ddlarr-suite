@@ -20,7 +20,8 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Install curl for downloads and extraction tools
-RUN apk add --no-cache curl wget unzip p7zip unrar
+# Note: unrar is no longer available in Alpine, using libarchive-tools (bsdtar) for RAR support
+RUN apk add --no-cache curl wget unzip p7zip libarchive-tools
 
 # Copy built files
 COPY --from=backend-builder /app/dist ./dist
