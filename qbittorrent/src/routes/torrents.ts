@@ -71,7 +71,8 @@ function toQBTorrentInfo(download: Download): QBTorrentInfo {
     uploaded_session: 0,
     amount_left: download.state === 'completed' ? 0 : download.totalSize - download.downloadedSize,
     completed: effectiveDownloaded,
-    ratio_limit: -2,
+    ratio_limit: -1,  // -1 = no limit (seed requirement always met)
+    seeding_time_limit: -1,  // -1 = no limit (seed requirement always met)
     seen_complete: download.completedAt ? Math.floor(download.completedAt / 1000) : -1,
     last_activity: Math.floor(Date.now() / 1000),
     total_size: download.totalSize,

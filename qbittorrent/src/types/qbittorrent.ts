@@ -34,6 +34,7 @@ export interface QBTorrentInfo {
   amount_left: number;
   completed: number;
   ratio_limit: number;
+  seeding_time_limit: number;
   seen_complete: number;
   last_activity: number;
   total_size: number;
