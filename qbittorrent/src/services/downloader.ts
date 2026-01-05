@@ -106,10 +106,12 @@ export function startDownload(
   }
 
   // curl with progress output
+  // Use --progress-bar to force progress output even when not connected to a tty
   const curlArgs = [
     '-L',
     '-o', actualTempPath,
     '--fail',
+    '--progress-bar',
   ];
 
   // Add resume flag if file exists with content
@@ -449,9 +451,58 @@ export function getDownloadProgress(hash: string): DownloadProgress | null {
 
 /**
  * Parse curl progress output
+ * Supports both default format and --progress-bar format
  */
 function parseProgress(download: ActiveDownload, output: string): void {
-  // Parse progress from curl's default output
+  // Try to parse --progress-bar format first (e.g., "###... 47.3%")
+  // This format includes a percentage at the end
+  const progressBarMatch = output.match(/(\d+\.?\d*)%/);
+  if (progressBarMatch) {
+    const percent = parseFloat(progressBarMatch[1]);
+    if (!isNaN(percent) && percent >= 0 && percent <= 100) {
+      download.progress = Math.round(percent);
+
+      // Estimate downloaded bytes based on percentage (if we know total)
+      if (download.totalBytes > 0) {
+        download.downloadedBytes = Math.round((percent / 100) * download.totalBytes);
+      }
+
+      // Try to get file size from temp file for speed estimation
+      try {
+        const stats = fs.statSync(download.tempPath);
+        const currentSize = stats.size;
+        const prevSize = download.downloadedBytes;
+
+        // Estimate speed based on file growth (rough estimate)
+        if (currentSize > prevSize) {
+          download.downloadedBytes = currentSize + download.resumeOffset;
+          // If we don't have total, estimate from progress percentage
+          if (download.totalBytes === 0 && percent > 0) {
+            download.totalBytes = Math.round((download.downloadedBytes * 100) / percent);
+          }
+        }
+      } catch (e) {
+        // Ignore file stat errors
+      }
+
+      // Notify progress
+      const eta = download.downloadSpeed > 0 && download.totalBytes > 0
+        ? Math.ceil((download.totalBytes - download.downloadedBytes) / download.downloadSpeed)
+        : 8640000;
+
+      download.onProgress?.({
+        hash: download.hash,
+        progress: download.progress,
+        downloadedBytes: download.downloadedBytes,
+        totalBytes: download.totalBytes,
+        downloadSpeed: download.downloadSpeed,
+        eta,
+      });
+      return;
+    }
+  }
+
+  // Fall back to default curl format parsing
   // Format:  5  500M    5 26.3M    0     0  10.5M      0  0:00:47  0:00:02  0:00:45 10.5M
   // Columns: % Total % Recv % Xferd AvgDl AvgUp TimeTotal TimeSpent TimeLeft CurrentSpeed
 
