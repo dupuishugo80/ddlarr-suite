@@ -519,6 +519,7 @@ async function moveFileAsync(
       const stat = await fsPromises.stat(src);
       const totalBytes = stat.size;
       let copiedBytes = 0;
+      let lastPercent = -1;
 
       await new Promise<void>((resolve, reject) => {
         const readStream = fs.createReadStream(src);
@@ -526,7 +527,12 @@ async function moveFileAsync(
 
         readStream.on('data', (chunk: Buffer | string) => {
           copiedBytes += typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length;
-          onProgress?.(copiedBytes, totalBytes);
+          // Only call progress callback when percentage changes
+          const percent = Math.floor((copiedBytes / totalBytes) * 100);
+          if (percent !== lastPercent) {
+            lastPercent = percent;
+            onProgress?.(copiedBytes, totalBytes);
+          }
         });
 
         readStream.on('error', reject);
