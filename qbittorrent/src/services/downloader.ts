@@ -524,8 +524,8 @@ async function moveFileAsync(
         const readStream = fs.createReadStream(src);
         const writeStream = fs.createWriteStream(dest);
 
-        readStream.on('data', (chunk: Buffer) => {
-          copiedBytes += chunk.length;
+        readStream.on('data', (chunk: Buffer | string) => {
+          copiedBytes += typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length;
           onProgress?.(copiedBytes, totalBytes);
         });
 
