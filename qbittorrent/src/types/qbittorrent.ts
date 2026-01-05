@@ -43,7 +43,7 @@ export interface QBTorrentInfo {
   content_path: string;
   magnet_uri: string;
   // Custom fields for DDL-qBittorrent UI
-  status_message?: string;    // Current step: "Résolution dl-protect...", "Débridage...", etc.
+  status_message?: string;    // Current step: "Resolving dl-protect...", "Debriding...", etc.
   error_message?: string;     // Error details
 }
 

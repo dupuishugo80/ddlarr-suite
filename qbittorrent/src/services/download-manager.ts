@@ -12,6 +12,17 @@ import * as repository from '../db/repository.js';
 import type { Download, DownloadState } from '../types/download.js';
 
 /**
+ * Format bytes per second to human readable speed
+ */
+function formatSpeed(bytesPerSec: number): string {
+  if (bytesPerSec === 0) return '0 B/s';
+  const k = 1024;
+  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
+  return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+/**
  * Get the real filename from a URL by checking Content-Disposition header
  */
 // Known error URL patterns that indicate the file is not available
@@ -452,16 +463,17 @@ class DownloadManager {
             if (dl && dl.totalSize > 0) {
               repository.updateDownloadProgress(hash, dl.totalSize, dl.totalSize, 0);
             }
-            repository.updateDownloadStatusMessage(hash, `Déplacement vers ${finalPath}...`);
+            repository.updateDownloadStatusMessage(hash, `Moving to ${finalPath}...`);
             console.log(`[DownloadManager] Moving: ${name} -> ${finalPath}`);
           },
-          onMoveProgress: (copiedBytes, totalBytes) => {
+          onMoveProgress: (copiedBytes, totalBytes, speed) => {
             const percent = Math.round((copiedBytes / totalBytes) * 100);
-            console.log(`[DownloadManager] Copy progress: ${name} - ${percent}%`);
-            repository.updateDownloadStatusMessage(hash, `Copie en cours... ${percent}%`);
+            const speedStr = formatSpeed(speed);
+            console.log(`[DownloadManager] Copy progress: ${name} - ${percent}% @ ${speedStr}`);
+            repository.updateDownloadStatusMessage(hash, `Copying... ${percent}% - ${speedStr}`);
           },
           onExtracting: (finalPath) => {
-            repository.updateDownloadStatusMessage(hash, 'Extraction en cours...');
+            repository.updateDownloadStatusMessage(hash, 'Extracting...');
             console.log(`[DownloadManager] Extracting: ${name}`);
           },
           onComplete: (finalPath) => {
@@ -489,15 +501,15 @@ class DownloadManager {
 
       // Resolve dl-protect if needed
       if (isDlProtectLink(link)) {
-        repository.updateDownloadStatusMessage(hash, 'Résolution dl-protect...');
+        repository.updateDownloadStatusMessage(hash, 'Resolving dl-protect...');
         console.log(`[DownloadManager] Resolving dl-protect link...`);
         try {
           link = await resolveDlProtectLink(link);
           if (!link || link === originalLink) {
-            throw new Error('Échec de la résolution dl-protect');
+            throw new Error('Failed to resolve dl-protect link');
           }
         } catch (error: any) {
-          repository.updateDownloadState(hash, 'error', `Échec dl-protect: ${error.message}`);
+          repository.updateDownloadState(hash, 'error', `dl-protect failed: ${error.message}`);
           console.error(`[DownloadManager] dl-protect resolution failed: ${error.message}`);
           this.processQueue();
           return;
@@ -505,18 +517,18 @@ class DownloadManager {
       }
 
       // Check if the hoster link is valid (before debridding)
-      repository.updateDownloadStatusMessage(hash, 'Vérification du lien...');
+      repository.updateDownloadStatusMessage(hash, 'Verifying link...');
       try {
         const response = await fetch(link, { method: 'HEAD', redirect: 'follow' });
         if (response.status === 404) {
-          repository.updateDownloadState(hash, 'error', 'Lien hoster introuvable (404)');
+          repository.updateDownloadState(hash, 'error', 'Hoster link not found (404)');
           console.error(`[DownloadManager] Hoster link returned 404: ${link}`);
           this.processQueue();
           return;
         }
         // Check if redirected to an error page (e.g., rapidgator premium page)
         if (isErrorUrl(response.url)) {
-          repository.updateDownloadState(hash, 'error', `Lien hoster invalide (redirect vers ${response.url})`);
+          repository.updateDownloadState(hash, 'error', `Invalid hoster link (redirect to ${response.url})`);
           console.error(`[DownloadManager] Hoster link redirected to error page: ${response.url}`);
           this.processQueue();
           return;
@@ -528,19 +540,19 @@ class DownloadManager {
 
       // Debrid if enabled
       if (isAnyDebridEnabled()) {
-        repository.updateDownloadStatusMessage(hash, 'Débridage en cours...');
+        repository.updateDownloadStatusMessage(hash, 'Debriding...');
         console.log(`[DownloadManager] Debriding link...`);
         try {
           const debridedUrl = await debridLink(link);
           if (!debridedUrl) {
-            throw new Error('Le service de débridage n\'a pas retourné de lien');
+            throw new Error('Debrid service did not return a link');
           }
           if (debridedUrl !== link) {
             repository.updateDownloadLink(hash, debridedUrl);
             link = debridedUrl;
           }
         } catch (error: any) {
-          repository.updateDownloadState(hash, 'error', `Échec débridage: ${error.message}`);
+          repository.updateDownloadState(hash, 'error', `Debrid failed: ${error.message}`);
           console.error(`[DownloadManager] Debrid failed: ${error.message}`);
           this.processQueue();
           return;
@@ -549,7 +561,7 @@ class DownloadManager {
 
       // Get real filename from debrid link (with proper extension)
       // This also validates the debrid link (checks for 404, etc.)
-      repository.updateDownloadStatusMessage(hash, 'Vérification du lien débridé...');
+      repository.updateDownloadStatusMessage(hash, 'Verifying debrided link...');
       let actualName = name;
       try {
         actualName = await getRealFilename(link, name);
@@ -560,7 +572,7 @@ class DownloadManager {
       } catch (error: any) {
         // Check if it's an HTTP error (like 404)
         if (error.message.startsWith('HTTP ')) {
-          repository.updateDownloadState(hash, 'error', `Lien introuvable: ${error.message}`);
+          repository.updateDownloadState(hash, 'error', `Link not found: ${error.message}`);
           console.error(`[DownloadManager] Debrid link error: ${error.message}`);
           this.processQueue();
           return;
@@ -588,16 +600,17 @@ class DownloadManager {
           if (dl && dl.totalSize > 0) {
             repository.updateDownloadProgress(hash, dl.totalSize, dl.totalSize, 0);
           }
-          repository.updateDownloadStatusMessage(hash, `Déplacement vers ${finalPath}...`);
+          repository.updateDownloadStatusMessage(hash, `Moving to ${finalPath}...`);
           console.log(`[DownloadManager] Moving: ${name} -> ${finalPath}`);
         },
-        onMoveProgress: (copiedBytes, totalBytes) => {
+        onMoveProgress: (copiedBytes, totalBytes, speed) => {
           const percent = Math.round((copiedBytes / totalBytes) * 100);
-          console.log(`[DownloadManager] Copy progress: ${name} - ${percent}%`);
-          repository.updateDownloadStatusMessage(hash, `Copie en cours... ${percent}%`);
+          const speedStr = formatSpeed(speed);
+          console.log(`[DownloadManager] Copy progress: ${name} - ${percent}% @ ${speedStr}`);
+          repository.updateDownloadStatusMessage(hash, `Copying... ${percent}% - ${speedStr}`);
         },
         onExtracting: (finalPath) => {
-          repository.updateDownloadStatusMessage(hash, 'Extraction en cours...');
+          repository.updateDownloadStatusMessage(hash, 'Extracting...');
           console.log(`[DownloadManager] Extracting: ${name}`);
         },
         onComplete: (finalPath) => {

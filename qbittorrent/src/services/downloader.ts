@@ -24,12 +24,15 @@ interface ActiveDownload {
   onError?: (error: Error) => void;
   onPaused?: () => void;
   onMoving?: (finalPath: string) => void;
-  onMoveProgress?: (copiedBytes: number, totalBytes: number) => void;
+  onMoveProgress?: (copiedBytes: number, totalBytes: number, speed: number) => void;
   onExtracting?: (finalPath: string) => void;
 }
 
 // Track active curl processes
 const activeDownloads: Map<string, ActiveDownload> = new Map();
+
+// Track active copy operations (for cancellation)
+const activeCopies: Map<string, { abort: () => void; destPath: string }> = new Map();
 
 // Track paused downloads info for resume
 const pausedDownloads: Map<string, {
@@ -55,7 +58,7 @@ export function startDownload(
     onError?: (error: Error) => void;
     onPaused?: () => void;
     onMoving?: (finalPath: string) => void;  // Called when moving file to final destination
-    onMoveProgress?: (copiedBytes: number, totalBytes: number) => void;  // Called during file copy progress
+    onMoveProgress?: (copiedBytes: number, totalBytes: number, speed: number) => void;  // Called during file copy progress
     onExtracting?: (finalPath: string) => void;  // Called when extracting archive
   },
   knownTotalSize?: number,  // Pass the known total size from database for resume
@@ -191,7 +194,7 @@ export function startDownload(
       download.onMoving?.(finalPath);
       console.log(`[Downloader] Moving file to: ${finalPath}`);
 
-      moveFileAsync(actualTempPath, finalPath, download.onMoveProgress)
+      moveFileAsync(hash, actualTempPath, finalPath, download.onMoveProgress)
         .then(async () => {
           console.log(`[Downloader] File moved to: ${finalPath}`);
 
@@ -313,9 +316,28 @@ export function pauseDownload(hash: string): boolean {
 }
 
 /**
- * Stop a download completely (deletes temp file)
+ * Stop a download completely (deletes temp file and cancels any ongoing copy)
  */
 export function stopDownload(hash: string): boolean {
+  // Check if there's an active copy operation and abort it
+  const activeCopy = activeCopies.get(hash);
+  if (activeCopy) {
+    console.log(`[Downloader] Aborting active copy for: ${hash}`);
+    activeCopy.abort();
+    // Delete partial destination file
+    setTimeout(() => {
+      if (fs.existsSync(activeCopy.destPath)) {
+        try {
+          fs.unlinkSync(activeCopy.destPath);
+          console.log(`[Downloader] Cleaned up partial destination file: ${activeCopy.destPath}`);
+        } catch (e) {
+          console.error(`[Downloader] Failed to cleanup partial destination file: ${activeCopy.destPath}`);
+        }
+      }
+    }, 500);
+    activeCopies.delete(hash);
+  }
+
   const download = activeDownloads.get(hash);
   if (!download) {
     // Check if it's paused
@@ -333,7 +355,8 @@ export function stopDownload(hash: string): boolean {
       pausedDownloads.delete(hash);
       return true;
     }
-    return false;
+    // If we aborted a copy above, return true
+    return activeCopy !== undefined;
   }
 
   console.log(`[Downloader] Stopping download: ${hash}`);
@@ -363,10 +386,10 @@ export function stopDownload(hash: string): boolean {
 }
 
 /**
- * Check if a download is active
+ * Check if a download is active (downloading or copying)
  */
 export function isDownloadActive(hash: string): boolean {
-  return activeDownloads.has(hash);
+  return activeDownloads.has(hash) || activeCopies.has(hash);
 }
 
 /**
@@ -499,12 +522,14 @@ function parseSize(sizeStr: string): number {
 
 /**
  * Move file with cross-device fallback (async version)
- * Supports progress callback for large file copies
+ * Supports progress callback for large file copies with speed calculation
+ * Returns abort function for cancellation support
  */
 async function moveFileAsync(
+  hash: string,
   src: string,
   dest: string,
-  onProgress?: (copiedBytes: number, totalBytes: number) => void
+  onProgress?: (copiedBytes: number, totalBytes: number, speed: number) => void
 ): Promise<void> {
   const fsPromises = await import('fs/promises');
   const fs = await import('fs');
@@ -520,24 +545,70 @@ async function moveFileAsync(
       const totalBytes = stat.size;
       let copiedBytes = 0;
       let lastPercent = -1;
+      let lastTime = Date.now();
+      let lastBytes = 0;
+      let currentSpeed = 0;
+      let aborted = false;
 
       await new Promise<void>((resolve, reject) => {
         const readStream = fs.createReadStream(src);
         const writeStream = fs.createWriteStream(dest);
 
+        // Register abort function
+        const abortCopy = () => {
+          aborted = true;
+          readStream.destroy();
+          writeStream.destroy();
+          console.log(`[Downloader] Copy aborted for ${hash}`);
+        };
+        activeCopies.set(hash, { abort: abortCopy, destPath: dest });
+
         readStream.on('data', (chunk: Buffer | string) => {
+          if (aborted) return;
           copiedBytes += typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length;
           // Only call progress callback when percentage changes
           const percent = Math.floor((copiedBytes / totalBytes) * 100);
           if (percent !== lastPercent) {
             lastPercent = percent;
-            onProgress?.(copiedBytes, totalBytes);
+
+            // Calculate speed (bytes per second)
+            const now = Date.now();
+            const timeDelta = (now - lastTime) / 1000; // seconds
+            if (timeDelta > 0) {
+              const bytesDelta = copiedBytes - lastBytes;
+              currentSpeed = bytesDelta / timeDelta;
+              lastTime = now;
+              lastBytes = copiedBytes;
+            }
+
+            onProgress?.(copiedBytes, totalBytes, currentSpeed);
           }
         });
 
-        readStream.on('error', reject);
-        writeStream.on('error', reject);
-        writeStream.on('finish', resolve);
+        readStream.on('error', (err) => {
+          activeCopies.delete(hash);
+          if (aborted) {
+            reject(new Error('Copy aborted'));
+          } else {
+            reject(err);
+          }
+        });
+        writeStream.on('error', (err) => {
+          activeCopies.delete(hash);
+          if (aborted) {
+            reject(new Error('Copy aborted'));
+          } else {
+            reject(err);
+          }
+        });
+        writeStream.on('finish', () => {
+          activeCopies.delete(hash);
+          if (aborted) {
+            reject(new Error('Copy aborted'));
+          } else {
+            resolve();
+          }
+        });
 
         readStream.pipe(writeStream);
       });

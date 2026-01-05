@@ -11,7 +11,7 @@ export interface TorrentInfo {
   eta: number
   downloaded: number
   amount_left: number
-  status_message?: string  // Current step: "Résolution dl-protect...", etc.
+  status_message?: string  // Current step: "Resolving dl-protect...", etc.
   error_message?: string   // Error details
   content_path?: string    // Full path to downloaded file
 }

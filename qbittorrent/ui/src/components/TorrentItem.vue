@@ -41,16 +41,16 @@ const statusLabel = computed(() => {
     return props.torrent.status_message
   }
   switch (props.torrent.state) {
-    case 'downloading': return 'Téléchargement'
+    case 'downloading': return 'Downloading'
     case 'uploading':
-    case 'stoppedUP': return 'Terminé'
+    case 'stoppedUP': return 'Completed'
     case 'pausedDL':
-    case 'pausedUP': return 'En pause'
-    case 'queuedDL': return 'En attente'
-    case 'checkingDL': return 'Vérification'
-    case 'moving': return 'Déplacement...'
-    case 'error': return 'Erreur'
-    case 'stalledDL': return 'Bloqué'
+    case 'pausedUP': return 'Paused'
+    case 'queuedDL': return 'Queued'
+    case 'checkingDL': return 'Checking'
+    case 'moving': return 'Moving...'
+    case 'error': return 'Error'
+    case 'stalledDL': return 'Stalled'
     default: return props.torrent.state
   }
 })
