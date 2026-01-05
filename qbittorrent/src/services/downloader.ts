@@ -24,6 +24,7 @@ interface ActiveDownload {
   onError?: (error: Error) => void;
   onPaused?: () => void;
   onMoving?: (finalPath: string) => void;
+  onMoveProgress?: (copiedBytes: number, totalBytes: number) => void;
   onExtracting?: (finalPath: string) => void;
 }
 
@@ -54,6 +55,7 @@ export function startDownload(
     onError?: (error: Error) => void;
     onPaused?: () => void;
     onMoving?: (finalPath: string) => void;  // Called when moving file to final destination
+    onMoveProgress?: (copiedBytes: number, totalBytes: number) => void;  // Called during file copy progress
     onExtracting?: (finalPath: string) => void;  // Called when extracting archive
   },
   knownTotalSize?: number,  // Pass the known total size from database for resume
@@ -189,7 +191,7 @@ export function startDownload(
       download.onMoving?.(finalPath);
       console.log(`[Downloader] Moving file to: ${finalPath}`);
 
-      moveFileAsync(actualTempPath, finalPath)
+      moveFileAsync(actualTempPath, finalPath, download.onMoveProgress)
         .then(async () => {
           console.log(`[Downloader] File moved to: ${finalPath}`);
 
@@ -497,17 +499,43 @@ function parseSize(sizeStr: string): number {
 
 /**
  * Move file with cross-device fallback (async version)
+ * Supports progress callback for large file copies
  */
-async function moveFileAsync(src: string, dest: string): Promise<void> {
+async function moveFileAsync(
+  src: string,
+  dest: string,
+  onProgress?: (copiedBytes: number, totalBytes: number) => void
+): Promise<void> {
   const fsPromises = await import('fs/promises');
+  const fs = await import('fs');
 
   try {
     await fsPromises.rename(src, dest);
   } catch (error: any) {
     if (error.code === 'EXDEV') {
-      // Cross-device move, use copy+delete (this is the slow part)
-      console.log(`[Downloader] Cross-device move, using copy+delete`);
-      await fsPromises.copyFile(src, dest);
+      // Cross-device move, use copy+delete with progress tracking
+      console.log(`[Downloader] Cross-device move, using copy+delete with progress`);
+
+      const stat = await fsPromises.stat(src);
+      const totalBytes = stat.size;
+      let copiedBytes = 0;
+
+      await new Promise<void>((resolve, reject) => {
+        const readStream = fs.createReadStream(src);
+        const writeStream = fs.createWriteStream(dest);
+
+        readStream.on('data', (chunk: Buffer) => {
+          copiedBytes += chunk.length;
+          onProgress?.(copiedBytes, totalBytes);
+        });
+
+        readStream.on('error', reject);
+        writeStream.on('error', reject);
+        writeStream.on('finish', resolve);
+
+        readStream.pipe(writeStream);
+      });
+
       await fsPromises.unlink(src);
     } else {
       throw error;

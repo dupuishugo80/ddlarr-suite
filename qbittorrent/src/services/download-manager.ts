@@ -450,6 +450,10 @@ class DownloadManager {
             repository.updateDownloadStatusMessage(hash, `Déplacement vers ${finalPath}...`);
             console.log(`[DownloadManager] Moving: ${name} -> ${finalPath}`);
           },
+          onMoveProgress: (copiedBytes, totalBytes) => {
+            const percent = Math.round((copiedBytes / totalBytes) * 100);
+            repository.updateDownloadStatusMessage(hash, `Copie en cours... ${percent}%`);
+          },
           onExtracting: (finalPath) => {
             repository.updateDownloadStatusMessage(hash, 'Extraction en cours...');
             console.log(`[DownloadManager] Extracting: ${name}`);
@@ -575,6 +579,10 @@ class DownloadManager {
         onMoving: (finalPath) => {
           repository.updateDownloadStatusMessage(hash, `Déplacement vers ${finalPath}...`);
           console.log(`[DownloadManager] Moving: ${name} -> ${finalPath}`);
+        },
+        onMoveProgress: (copiedBytes, totalBytes) => {
+          const percent = Math.round((copiedBytes / totalBytes) * 100);
+          repository.updateDownloadStatusMessage(hash, `Copie en cours... ${percent}%`);
         },
         onExtracting: (finalPath) => {
           repository.updateDownloadStatusMessage(hash, 'Extraction en cours...');
