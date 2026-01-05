@@ -16,14 +16,14 @@ services:
     depends_on:
       dlprotect-resolver:
         condition: service_healthy
-      ddl-darkiworld:
-        condition: service_healthy
     restart: unless-stopped
 
   # Darkiworld Premium Scraper Service
   ddl-darkiworld:
     build: ./darkiworld
     container_name: ddl-darkiworld
+    profiles:
+      - darkiworld
     ports:
       - "${DARKIWORLD_PORT:-5002}:${DARKIWORLD_PORT:-5002}"
     environment:

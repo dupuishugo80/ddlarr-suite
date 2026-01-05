@@ -16,6 +16,7 @@ interface DarkiworldConfig {
 interface DarkiworldConfigResponse extends DarkiworldConfig {
   success?: boolean;
   error?: string;
+  reason?: string;
 }
 
 interface ConfigUpdateBody {
@@ -35,12 +36,20 @@ export async function darkiworldConfigRoutes(fastify: FastifyInstance): Promise<
         { timeout: 5000 }
       );
       return response;
-    } catch (error) {
-      console.error('[Darkiworld Config] Error fetching config:', error);
-      reply.status(500);
+    } catch (error: any) {
+      // Check if service is unavailable (container not started)
+      const isServiceDown = error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || (error.message && error.message.includes('ENOTFOUND'));
+      
+      if (!isServiceDown) {
+        console.error('[Darkiworld Config] Error fetching config:', error);
+      }
+
+      // Return 200 with error details so frontend can handle it gracefully
+      reply.status(200);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch config',
+        error: isServiceDown ? 'Container offline' : (error instanceof Error ? error.message : 'Failed to fetch config'),
+        reason: isServiceDown ? 'SERVICE_UNAVAILABLE' : 'UNKNOWN',
         enabled: false,
         email: '',
         has_password: false,

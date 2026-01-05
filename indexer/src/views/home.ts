@@ -481,14 +481,52 @@ export function renderHomePage(host: string): string {
 
       try {
         const response = await fetch('/darkiworld/config');
-        darkiworldConfig = await response.json();
+        const text = await response.text();
+        
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            throw new Error('Invalid JSON: ' + text.substring(0, 50));
+        }
+        
+        darkiworldConfig = data;
+
+        // Handle service offline (profile not active)
+        if (darkiworldConfig.reason === 'SERVICE_UNAVAILABLE' || (darkiworldConfig.error && darkiworldConfig.error.includes('ENOTFOUND'))) {
+          statusBadge.textContent = 'Non démarré';
+          statusBadge.className = 'status-badge disabled';
+          
+          document.getElementById('darkiworld-enabled').disabled = true;
+          document.getElementById('darkiworld-enabled').checked = false;
+          
+          // Show warning
+          const header = statusBadge.parentNode;
+          
+          if (!document.getElementById('dw-offline-msg')) {
+            const msg = document.createElement('div');
+            msg.id = 'dw-offline-msg';
+            msg.style.cssText = 'color: #ef4444; font-size: 0.8125rem; margin-bottom: 1rem; margin-top: -0.5rem;';
+            msg.textContent = '⚠ Container non démarré. Relancez avec : docker compose --profile darkiworld up -d ou décommentez le profile dans le .env';
+            
+            // Insert after header (next sibling of h2)
+            header.parentNode.insertBefore(msg, header.nextSibling);
+          }
+           
+          // Disable fields
+          const fields = document.getElementById('darkiworld-fields');
+          fields.style.opacity = '0.5';
+          fields.style.pointerEvents = 'none';
+          return;
+        }
 
         document.getElementById('darkiworld-enabled').checked = darkiworldConfig.enabled;
         document.getElementById('darkiworld-email').value = darkiworldConfig.email || '';
         updateDarkiworldStatus();
       } catch (error) {
         console.error('Error loading Darkiworld config:', error);
-        statusBadge.textContent = 'Erreur';
+        statusBadge.textContent = 'Erreur: ' + (error.message || error).substring(0, 20);
+        statusBadge.title = error.message || error;
         statusBadge.className = 'status-badge error';
       }
     }
