@@ -53,20 +53,20 @@ export function getConfig(): Config {
       },
       debrid: {
         alldebrid: {
-          enabled: process.env.ALLDEBRID_ENABLED === 'true',
+          enabled: process.env.ALLDEBRID_ENABLED?.toLowerCase() === 'true',
           apiKey: process.env.ALLDEBRID_API_KEY || '',
         },
         realdebrid: {
-          enabled: process.env.REALDEBRID_ENABLED === 'true',
+          enabled: process.env.REALDEBRID_ENABLED?.toLowerCase() === 'true',
           apiKey: process.env.REALDEBRID_API_KEY || '',
         },
         premiumize: {
-          enabled: process.env.PREMIUMIZE_ENABLED === 'true',
+          enabled: process.env.PREMIUMIZE_ENABLED?.toLowerCase() === 'true',
           apiKey: process.env.PREMIUMIZE_API_KEY || '',
         },
       },
       blackhole: {
-        enabled: process.env.BLACKHOLE_ENABLED === 'true',
+        enabled: process.env.BLACKHOLE_ENABLED?.toLowerCase() === 'true',
         path: process.env.BLACKHOLE_PATH || '/blackhole',
         category: process.env.BLACKHOLE_CATEGORY || '',
       },
