@@ -24,6 +24,14 @@ docker compose -f docker-compose.prod.yml up -d
 - Torznab Indexer: `http://localhost:9117`
 - qBittorrent UI: `http://localhost:8080` (admin/adminadmin)
 
+## Update
+
+```bash
+# Pull latest images and restart services
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
 **Configure in Radarr/Sonarr:**
 1. Add Indexer: Settings > Indexers > Torznab > URL: `http://<IP>:9117` > API Path: `/api/wawacity`
 2. Add Download Client: Settings > Download Clients > qBittorrent > Host: `<IP>`, Port: `8080`
