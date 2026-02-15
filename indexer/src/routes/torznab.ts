@@ -208,10 +208,17 @@ async function executeSearch(ctx: SearchContext): Promise<string> {
   }
 
   // Filter by category AFTER search (for fine-grained quality filtering like HD vs UHD)
+  // Parent categories (2000, 5000, 7000) match any of their subcategories
   if (categoryFilter && categoryFilter.length > 0) {
     results = results.filter(result => {
       const category = contentTypeToCategory(result.contentType, result.quality);
       if (categoryFilter.includes(category)) {
+        return true;
+      }
+      // If result has a generic parent category (unknown quality),
+      // include it when any subcategory of that parent is requested
+      const parentCategory = Math.floor(category / 1000) * 1000;
+      if (category === parentCategory && categoryFilter.some(cat => Math.floor(cat / 1000) * 1000 === parentCategory)) {
         return true;
       }
       console.log(`[Torznab] Skipping "${result.title}" - category ${category} not in filter: ${categoryFilter.join(',')}`);

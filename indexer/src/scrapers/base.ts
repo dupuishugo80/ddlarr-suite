@@ -112,19 +112,22 @@ export function contentTypeToCategory(contentType: ContentType, quality?: string
     return 7020; // BooksEBook par défaut
   }
 
-  const isHD = quality && /1080p|720p|HD|FHD|HDLight/i.test(quality);
   const isUHD = quality && /2160p|4K|UHD/i.test(quality);
+  const isHD = quality && /1080p|720p|HD|FHD|HDLight|WEB-?DL|WEBDL|WEBRip|BluRay|BDRip|BRRip/i.test(quality);
+  const isSD = quality && /480p|SD|DVDRip|CAM|TS|TC|HDCAM/i.test(quality);
 
   if (contentType === 'movie') {
     if (isUHD) return 2045;
     if (isHD) return 2040;
-    return 2030; // Default to SD when quality unknown
+    if (isSD) return 2030;
+    return 2000; // Unknown quality → generic category
   }
 
   if (contentType === 'series') {
     if (isUHD) return 5045;
     if (isHD) return 5040;
-    return 5030; // Default to SD when quality unknown
+    if (isSD) return 5030;
+    return 5000; // Unknown quality → generic category
   }
 
   return 2000;
