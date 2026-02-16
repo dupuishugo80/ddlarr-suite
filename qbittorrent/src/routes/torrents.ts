@@ -234,36 +234,48 @@ export async function torrentsRoutes(fastify: FastifyInstance): Promise<void> {
   // Add torrent
   fastify.post('/api/v2/torrents/add', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const parts = request.parts();
       const torrents: Buffer[] = [];
       let urls = '';
       let savepath: string | undefined = undefined;  // Don't default - let download-manager handle category path
       let category = '';
       let paused = false;
 
-      for await (const part of parts) {
-        if (part.type === 'file' && part.fieldname === 'torrents') {
-          const chunks: Buffer[] = [];
-          for await (const chunk of part.file) {
-            chunks.push(chunk);
-          }
-          torrents.push(Buffer.concat(chunks));
-        } else if (part.type === 'field') {
-          switch (part.fieldname) {
-            case 'urls':
-              urls = part.value as string;
-              break;
-            case 'savepath':
-              savepath = part.value as string;
-              break;
-            case 'category':
-              category = part.value as string;
-              break;
-            case 'paused':
-              paused = part.value === 'true';
-              break;
+      const contentType = request.headers['content-type'] || '';
+
+      if (contentType.includes('multipart/form-data')) {
+        // Handle multipart/form-data (file uploads + fields)
+        const parts = request.parts();
+        for await (const part of parts) {
+          if (part.type === 'file' && part.fieldname === 'torrents') {
+            const chunks: Buffer[] = [];
+            for await (const chunk of part.file) {
+              chunks.push(chunk);
+            }
+            torrents.push(Buffer.concat(chunks));
+          } else if (part.type === 'field') {
+            switch (part.fieldname) {
+              case 'urls':
+                urls = part.value as string;
+                break;
+              case 'savepath':
+                savepath = part.value as string;
+                break;
+              case 'category':
+                category = part.value as string;
+                break;
+              case 'paused':
+                paused = part.value === 'true';
+                break;
+            }
           }
         }
+      } else {
+        // Handle application/x-www-form-urlencoded or other content types
+        const body = request.body as Record<string, string> || {};
+        urls = body.urls || '';
+        savepath = body.savepath || undefined;
+        category = body.category || '';
+        paused = body.paused === 'true';
       }
 
       // Process torrent files
