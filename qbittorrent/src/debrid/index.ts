@@ -170,3 +170,74 @@ export async function debridTorrent(
 
   throw lastError || new Error('All debrid services failed to process torrent');
 }
+
+/**
+ * Upload a magnet URI to a debrid service and wait for it to be ready
+ * Polls the service until the torrent is ready or an error occurs
+ */
+export async function debridMagnet(
+  magnetUri: string,
+  onStatusUpdate?: (status: DebridTorrentStatus, serviceName: string) => void,
+  timeoutMs: number = 24 * 60 * 60 * 1000, // 24 hours default
+  pollIntervalMs: number = 5000
+): Promise<DebridTorrentResult> {
+  const enabledServices = getTorrentEnabledServices();
+
+  if (enabledServices.length === 0) {
+    throw new Error('No debrid service with torrent support is enabled');
+  }
+
+  let lastError: Error | null = null;
+
+  for (const service of enabledServices) {
+    try {
+      console.log(`[Debrid] Trying ${service.name} for magnet upload...`);
+
+      // Upload magnet
+      const torrentId = await service.uploadMagnet(magnetUri);
+      console.log(`[Debrid] ${service.name}: Magnet uploaded with id ${torrentId}`);
+
+      // Poll for completion
+      const startTime = Date.now();
+
+      while (Date.now() - startTime < timeoutMs) {
+        const status = await service.getTorrentStatus(torrentId);
+
+        if (onStatusUpdate) {
+          onStatusUpdate(status, service.name);
+        }
+
+        // Check if ready - prefer files array over downloadLinks
+        const hasFiles = status.files && status.files.length > 0;
+        const hasLinks = status.downloadLinks && status.downloadLinks.length > 0;
+
+        if (status.status === 'ready' && (hasFiles || hasLinks)) {
+          const fileCount = hasFiles ? status.files!.length : status.downloadLinks!.length;
+          console.log(`[Debrid] ${service.name}: Magnet ready with ${fileCount} file(s), size: ${status.totalSize}`);
+          return {
+            service: service.name,
+            torrentId,
+            downloadLinks: status.downloadLinks || status.files!.map(f => f.link),
+            files: status.files,
+            totalSize: status.totalSize,
+          };
+        }
+
+        if (status.status === 'error') {
+          throw new Error(status.errorMessage || 'Magnet processing failed');
+        }
+
+        // Wait before next poll
+        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+      }
+
+      throw new Error(`Timeout waiting for magnet after ${Math.round(timeoutMs / 1000 / 60)} minutes`);
+    } catch (error: any) {
+      console.warn(`[Debrid] ${service.name} failed: ${error.message}`);
+      lastError = error;
+      // Continue to next service
+    }
+  }
+
+  throw lastError || new Error('All debrid services failed to process magnet');
+}

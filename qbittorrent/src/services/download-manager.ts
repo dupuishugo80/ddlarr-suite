@@ -8,7 +8,7 @@ import {
   extractSizeFromTorrentBuffer,
 } from '../utils/torrent.js';
 import { isDlProtectLink, resolveDlProtectLink } from '../utils/dlprotect.js';
-import { debridLink, debridTorrent, isAnyDebridEnabled, getTorrentEnabledServices } from '../debrid/index.js';
+import { debridLink, debridTorrent, debridMagnet, isAnyDebridEnabled, getTorrentEnabledServices } from '../debrid/index.js';
 import { startDownload, stopDownload, pauseDownload, getDownloadProgress, isDownloadActive, isDownloadPaused, getPausedDownloadInfo } from './downloader.js';
 import * as repository from '../db/repository.js';
 import type { Download, DownloadState, DownloadType } from '../types/download.js';
@@ -319,6 +319,63 @@ class DownloadManager {
       console.log(`[DownloadManager] URL parsing failed, treating as direct link: ${error.message}`);
     }
 
+    // Detect magnet URIs
+    if (url.startsWith('magnet:')) {
+      const torrentServices = getTorrentEnabledServices();
+      if (torrentServices.length === 0) {
+        throw new Error('No debrid service with torrent support is enabled');
+      }
+
+      const hash = generateDownloadHash(url);
+      const config = getConfig();
+
+      // Extract name from magnet dn= parameter
+      let name = options.name;
+      if (!name) {
+        try {
+          const magnetUrl = new URL(url);
+          const dn = magnetUrl.searchParams.get('dn');
+          name = dn ? decodeURIComponent(dn) : `magnet_${Date.now()}`;
+        } catch {
+          name = `magnet_${Date.now()}`;
+        }
+      }
+
+      let savePath = options.savePath || config.downloadPath;
+      if (options.category && !options.savePath) {
+        savePath = `${config.downloadPath}/${options.category}`;
+      }
+
+      const download: Omit<Download, 'downloadSpeed'> = {
+        hash,
+        name,
+        type: 'magnet',
+        originalLink: url,
+        debridedLink: null,
+        debridTorrentId: null,
+        savePath,
+        totalSize: 0,
+        downloadedSize: 0,
+        state: options.paused ? 'paused' : 'queued',
+        statusMessage: null,
+        errorMessage: null,
+        addedAt: Date.now(),
+        startedAt: null,
+        completedAt: null,
+        category: options.category || null,
+        priority: 0,
+      };
+
+      repository.createDownload(download);
+      console.log(`[DownloadManager] Added magnet download: ${name} (${hash})`);
+
+      if (!options.paused) {
+        this.processQueue();
+      }
+
+      return hash;
+    }
+
     const hash = generateDownloadHash(url);
     const config = getConfig();
 
@@ -578,6 +635,8 @@ class DownloadManager {
     // Route to appropriate handler based on type
     if (download.type === 'real') {
       await this.startProcessingRealTorrent(download);
+    } else if (download.type === 'magnet') {
+      await this.startProcessingMagnet(download);
     } else {
       await this.startProcessingDdl(download);
     }
@@ -793,6 +852,215 @@ class DownloadManager {
         if (dl) {
           repository.updateDownloadState(hash, 'error', error.message);
           console.error(`[DownloadManager] Real torrent error: ${name} - ${error.message}`);
+        }
+      }
+      this.processQueue();
+    } finally {
+      // Always clean up operation tracking
+      this.activeDebridOperations.delete(hash);
+    }
+  }
+
+  /**
+   * Process a magnet URI (upload to debrid, wait for completion, download files)
+   */
+  private async startProcessingMagnet(download: Download): Promise<void> {
+    const { hash, name, savePath, originalLink } = download;
+
+    // Track this debrid operation for cancellation
+    const operation = { cancelled: false };
+    this.activeDebridOperations.set(hash, operation);
+
+    try {
+      repository.updateDownloadState(hash, 'checking');
+
+      // Upload magnet to debrid service
+      repository.updateDownloadStatusMessage(hash, 'Uploading magnet to debrid...');
+      console.log(`[DownloadManager] Uploading magnet: ${name}`);
+
+      const config = getConfig();
+      const timeoutMs = config.debridTorrentTimeoutHours * 60 * 60 * 1000;
+
+      const result = await debridMagnet(
+        originalLink,
+        (status, serviceName) => {
+          // Check if cancelled during polling
+          if (operation.cancelled) {
+            throw new Error('Download cancelled');
+          }
+          // Update status message based on debrid status
+          if (status.status === 'queued') {
+            repository.updateDownloadStatusMessage(hash, `Queued on ${serviceName}...`);
+          } else if (status.status === 'downloading') {
+            repository.updateDownloadStatusMessage(hash, `Downloading on debrid: ${status.progress}%`);
+          }
+        },
+        timeoutMs
+      );
+
+      // Check if cancelled after debrid completed
+      if (operation.cancelled) {
+        console.log(`[DownloadManager] Magnet cancelled after debrid: ${name}`);
+        return;
+      }
+
+      console.log(`[DownloadManager] Magnet ready on ${result.service}, ${result.downloadLinks.length} file(s)`);
+
+      // If single file, download it directly
+      // If multiple files, download each sequentially
+      if (result.downloadLinks.length === 1) {
+        const debridedUrl = result.downloadLinks[0];
+        repository.updateDownloadLink(hash, debridedUrl);
+
+        // Get real filename
+        repository.updateDownloadStatusMessage(hash, 'Getting file info...');
+        let actualName = name;
+        try {
+          actualName = await getRealFilename(debridedUrl, name);
+          if (actualName !== name) {
+            repository.updateDownloadName(hash, actualName);
+          }
+        } catch (error: any) {
+          console.log(`[DownloadManager] Could not get real filename: ${error.message}`);
+        }
+
+        // Start download
+        repository.updateDownloadStatusMessage(hash, null);
+        repository.updateDownloadState(hash, 'downloading');
+
+        startDownload(hash, debridedUrl, actualName, {
+          onProgress: (progress) => {
+            repository.updateDownloadProgress(hash, progress.downloadedBytes, progress.totalBytes, progress.downloadSpeed);
+          },
+          onMoving: (finalPath) => {
+            const dl = repository.getDownloadByHash(hash);
+            if (dl && dl.totalSize > 0) {
+              repository.updateDownloadProgress(hash, dl.totalSize, dl.totalSize, 0);
+            }
+            repository.updateDownloadStatusMessage(hash, `Moving to ${finalPath}...`);
+          },
+          onMoveProgress: (copiedBytes, totalBytes, speed) => {
+            const percent = Math.round((copiedBytes / totalBytes) * 100);
+            repository.updateDownloadStatusMessage(hash, `Copying... ${percent}% - ${formatSpeed(speed)}`);
+          },
+          onExtracting: () => {
+            repository.updateDownloadStatusMessage(hash, 'Extracting...');
+          },
+          onComplete: () => {
+            repository.updateDownloadState(hash, 'completed');
+            console.log(`[DownloadManager] Completed: ${name}`);
+            this.processQueue();
+          },
+          onError: (error) => {
+            repository.updateDownloadState(hash, 'error', error.message);
+            console.error(`[DownloadManager] Error: ${name} - ${error.message}`);
+            this.processQueue();
+          },
+          onPaused: () => {
+            console.log(`[DownloadManager] Download paused: ${name}`);
+          },
+        }, result.totalSize, savePath);
+      } else {
+        // Multiple files - download them sequentially into a folder
+        console.log(`[DownloadManager] Multi-file magnet with ${result.downloadLinks.length} files`);
+
+        // Create folder with torrent name
+        const torrentFolder = path.join(savePath, name);
+        if (!fs.existsSync(torrentFolder)) {
+          fs.mkdirSync(torrentFolder, { recursive: true });
+          console.log(`[DownloadManager] Created folder: ${torrentFolder}`);
+        }
+
+        // Download all files sequentially
+        repository.updateDownloadStatusMessage(hash, null);
+        repository.updateDownloadState(hash, 'downloading');
+
+        const totalFiles = result.downloadLinks.length;
+        let completedFiles = 0;
+        let totalDownloaded = 0;
+
+        const downloadNextFile = async (index: number) => {
+          if (index >= totalFiles) {
+            // All files completed
+            repository.updateDownloadState(hash, 'completed');
+            console.log(`[DownloadManager] Completed all ${totalFiles} files: ${name}`);
+            this.processQueue();
+            return;
+          }
+
+          const debridedUrl = result.downloadLinks[index];
+          repository.updateDownloadStatusMessage(hash, `File ${index + 1}/${totalFiles}: Getting info...`);
+
+          // Get real filename for this file
+          let filename = `file_${index + 1}`;
+          try {
+            filename = await getRealFilename(debridedUrl, filename);
+            console.log(`[DownloadManager] File ${index + 1}/${totalFiles}: ${filename}`);
+          } catch (error: any) {
+            console.log(`[DownloadManager] Could not get filename for file ${index + 1}: ${error.message}`);
+          }
+
+          repository.updateDownloadStatusMessage(hash, `File ${index + 1}/${totalFiles}: ${filename}`);
+
+          // Use a unique hash for each file download to avoid conflicts
+          const fileHash = `${hash}_file_${index}`;
+
+          startDownload(fileHash, debridedUrl, filename, {
+            onProgress: (progress) => {
+              // Update global progress considering completed files
+              const currentFileProgress = progress.downloadedBytes;
+              const globalDownloaded = totalDownloaded + currentFileProgress;
+              repository.updateDownloadProgress(hash, globalDownloaded, result.totalSize || 0, progress.downloadSpeed);
+              repository.updateDownloadStatusMessage(hash, `File ${index + 1}/${totalFiles}: ${filename} (${progress.progress}%)`);
+            },
+            onMoving: () => {
+              repository.updateDownloadStatusMessage(hash, `File ${index + 1}/${totalFiles}: Moving ${filename}...`);
+            },
+            onMoveProgress: (copiedBytes, totalBytes, speed) => {
+              const percent = Math.round((copiedBytes / totalBytes) * 100);
+              repository.updateDownloadStatusMessage(hash, `File ${index + 1}/${totalFiles}: Copying ${filename}... ${percent}%`);
+            },
+            onExtracting: () => {
+              repository.updateDownloadStatusMessage(hash, `File ${index + 1}/${totalFiles}: Extracting ${filename}...`);
+            },
+            onComplete: (finalPath) => {
+              completedFiles++;
+              // Get file size and add to total downloaded
+              try {
+                const stats = fs.statSync(finalPath);
+                totalDownloaded += stats.size;
+              } catch {}
+              console.log(`[DownloadManager] Completed file ${completedFiles}/${totalFiles}: ${filename}`);
+              // Download next file
+              downloadNextFile(index + 1);
+            },
+            onError: (error) => {
+              repository.updateDownloadState(hash, 'error', `File ${index + 1} failed: ${error.message}`);
+              console.error(`[DownloadManager] Error on file ${index + 1}: ${error.message}`);
+              this.processQueue();
+            },
+            onPaused: () => {
+              console.log(`[DownloadManager] Download paused at file ${index + 1}/${totalFiles}`);
+            },
+          }, undefined, torrentFolder);  // Download into torrent folder
+        };
+
+        // Start downloading first file
+        downloadNextFile(0);
+      }
+    } catch (error: any) {
+      // Clean up operation tracking
+      this.activeDebridOperations.delete(hash);
+
+      // Don't set error state if cancelled (download was deleted)
+      if (operation.cancelled || error.message === 'Download cancelled') {
+        console.log(`[DownloadManager] Magnet cancelled: ${name}`);
+      } else {
+        // Only update state if download still exists
+        const dl = repository.getDownloadByHash(hash);
+        if (dl) {
+          repository.updateDownloadState(hash, 'error', error.message);
+          console.error(`[DownloadManager] Magnet error: ${name} - ${error.message}`);
         }
       }
       this.processQueue();

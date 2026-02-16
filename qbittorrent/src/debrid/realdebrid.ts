@@ -164,6 +164,39 @@ export class RealDebridClient implements DebridService {
     throw new Error('Failed to upload torrent');
   }
 
+  async uploadMagnet(magnetUri: string): Promise<string> {
+    const config = getConfig().debrid.realdebrid;
+
+    if (!config.apiKey) {
+      throw new Error('Real-Debrid not configured');
+    }
+
+    console.log(`[Real-Debrid] Uploading magnet URI`);
+
+    const response = await axios.post<{ id: string; uri: string }>(
+      `${REALDEBRID_API_BASE}/torrents/addMagnet`,
+      `magnet=${encodeURIComponent(magnetUri)}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        timeout: 60000,
+      }
+    );
+
+    if (response.data.id) {
+      console.log(`[Real-Debrid] Magnet uploaded, id: ${response.data.id}`);
+
+      // Real-Debrid requires selecting files after upload
+      await this.selectAllFiles(response.data.id);
+
+      return response.data.id;
+    }
+
+    throw new Error('Failed to upload magnet');
+  }
+
   private async selectAllFiles(torrentId: string): Promise<void> {
     const config = getConfig().debrid.realdebrid;
 

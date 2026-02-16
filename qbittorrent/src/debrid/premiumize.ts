@@ -172,6 +172,41 @@ export class PremiumizeClient implements DebridService {
     throw new Error('Failed to upload torrent');
   }
 
+  async uploadMagnet(magnetUri: string): Promise<string> {
+    const config = getConfig().debrid.premiumize;
+
+    if (!config.apiKey) {
+      throw new Error('Premiumize not configured');
+    }
+
+    console.log(`[Premiumize] Uploading magnet URI`);
+
+    const response = await axios.post<PremiumizeResponse<PremiumizeTransferCreate>>(
+      `${PREMIUMIZE_API_BASE}/transfer/create`,
+      `src=${encodeURIComponent(magnetUri)}`,
+      {
+        params: {
+          apikey: config.apiKey,
+        },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        timeout: 60000,
+      }
+    );
+
+    if (response.data.status === 'success' && response.data.content?.id) {
+      console.log(`[Premiumize] Magnet uploaded, id: ${response.data.content.id}`);
+      return response.data.content.id;
+    }
+
+    if (response.data.message) {
+      throw new Error(response.data.message);
+    }
+
+    throw new Error('Failed to upload magnet');
+  }
+
   async getTorrentStatus(torrentId: string): Promise<DebridTorrentStatus> {
     const config = getConfig().debrid.premiumize;
 
