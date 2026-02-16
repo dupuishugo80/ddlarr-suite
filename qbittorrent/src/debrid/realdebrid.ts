@@ -263,6 +263,7 @@ export class RealDebridClient implements DebridService {
 
     const result: DebridTorrentStatus = {
       id: torrentId,
+      name: torrent.filename || undefined,
       status,
       progress: Math.round(torrent.progress),
     };
