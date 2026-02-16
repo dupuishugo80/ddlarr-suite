@@ -891,26 +891,28 @@ class DownloadManager {
         }
       }
 
-      // Check if the hoster link is valid (before debridding)
-      repository.updateDownloadStatusMessage(hash, 'Verifying link...');
-      try {
-        const response = await fetch(link, { method: 'HEAD', redirect: 'follow' });
-        if (response.status === 404) {
-          repository.updateDownloadState(hash, 'error', 'Hoster link not found (404)');
-          console.error(`[DownloadManager] Hoster link returned 404: ${link}`);
-          this.processQueue();
-          return;
+      // Check if the hoster link is valid (skip if debrid is enabled - debrid services have their own cache)
+      if (!isAnyDebridEnabled()) {
+        repository.updateDownloadStatusMessage(hash, 'Verifying link...');
+        try {
+          const response = await fetch(link, { method: 'HEAD', redirect: 'follow' });
+          if (response.status === 404) {
+            repository.updateDownloadState(hash, 'error', 'Hoster link not found (404)');
+            console.error(`[DownloadManager] Hoster link returned 404: ${link}`);
+            this.processQueue();
+            return;
+          }
+          // Check if redirected to an error page (e.g., rapidgator premium page)
+          if (isErrorUrl(response.url)) {
+            repository.updateDownloadState(hash, 'error', `Invalid hoster link (redirect to ${response.url})`);
+            console.error(`[DownloadManager] Hoster link redirected to error page: ${response.url}`);
+            this.processQueue();
+            return;
+          }
+        } catch (error: any) {
+          // HEAD request might fail for some hosts, continue anyway
+          console.log(`[DownloadManager] HEAD request failed, continuing: ${error.message}`);
         }
-        // Check if redirected to an error page (e.g., rapidgator premium page)
-        if (isErrorUrl(response.url)) {
-          repository.updateDownloadState(hash, 'error', `Invalid hoster link (redirect to ${response.url})`);
-          console.error(`[DownloadManager] Hoster link redirected to error page: ${response.url}`);
-          this.processQueue();
-          return;
-        }
-      } catch (error: any) {
-        // HEAD request might fail for some hosts, continue anyway
-        console.log(`[DownloadManager] HEAD request failed, continuing: ${error.message}`);
       }
 
       // Debrid if enabled
