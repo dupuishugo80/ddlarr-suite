@@ -7,7 +7,7 @@ export type DownloadState =
   | 'error'       // Failed with error
   | 'stalled';    // No progress for timeout
 
-export type DownloadType = 'ddl' | 'real';
+export type DownloadType = 'ddl' | 'real' | 'magnet';
 
 export interface Download {
   hash: string;

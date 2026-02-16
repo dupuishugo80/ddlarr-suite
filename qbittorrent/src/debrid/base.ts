@@ -60,6 +60,12 @@ export interface DebridService {
   uploadTorrent(torrentBuffer: Buffer, filename?: string): Promise<string>;
 
   /**
+   * Upload a magnet URI to the debrid service
+   * Returns the torrent ID for status tracking
+   */
+  uploadMagnet(magnetUri: string): Promise<string>;
+
+  /**
    * Get the status of an uploaded torrent
    */
   getTorrentStatus(torrentId: string): Promise<DebridTorrentStatus>;

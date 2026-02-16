@@ -204,6 +204,42 @@ export class AllDebridClient implements DebridService {
     throw new Error('Failed to upload torrent');
   }
 
+  async uploadMagnet(magnetUri: string): Promise<string> {
+    const config = getConfig().debrid.alldebrid;
+
+    if (!config.apiKey) {
+      throw new Error('AllDebrid not configured');
+    }
+
+    console.log(`[AllDebrid] Uploading magnet URI`);
+
+    const formData = new FormData();
+    formData.append('magnets[]', magnetUri);
+
+    const response = await axios.post<AllDebridResponse<MagnetUploadResponse>>(
+      `${ALLDEBRID_API_BASE}/magnet/upload`,
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${config.apiKey}`,
+        },
+        timeout: 60000,
+      }
+    );
+
+    if (response.data.status === 'success' && response.data.data?.magnets?.[0]) {
+      const magnet = response.data.data.magnets[0];
+      console.log(`[AllDebrid] Magnet uploaded, id: ${magnet.id}, name: ${magnet.name}, ready: ${magnet.ready}`);
+      return String(magnet.id);
+    }
+
+    if (response.data.error) {
+      throw new Error(`${response.data.error.message} (${response.data.error.code})`);
+    }
+
+    throw new Error('Failed to upload magnet');
+  }
+
   async getTorrentStatus(torrentId: string): Promise<DebridTorrentStatus> {
     const config = getConfig().debrid.alldebrid;
 
