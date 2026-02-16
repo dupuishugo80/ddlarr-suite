@@ -13,6 +13,7 @@ export interface DebridFileInfo {
  */
 export interface DebridTorrentStatus {
   id: string;
+  name?: string;             // Torrent name as reported by the debrid service
   status: 'queued' | 'downloading' | 'ready' | 'error';
   progress: number;  // 0-100
   totalSize?: number;        // Total size in bytes

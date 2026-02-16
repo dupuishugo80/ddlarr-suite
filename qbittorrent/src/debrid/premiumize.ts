@@ -265,6 +265,7 @@ export class PremiumizeClient implements DebridService {
 
     const result: DebridTorrentStatus = {
       id: torrentId,
+      name: transfer.name || undefined,
       status,
       progress: Math.round(transfer.progress * 100),
     };

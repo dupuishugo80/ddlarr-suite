@@ -94,6 +94,7 @@ export function getTorrentEnabledServices(): DebridService[] {
 export interface DebridTorrentResult {
   service: string;
   torrentId: string;
+  name?: string;             // Torrent name from debrid service
   downloadLinks: string[];
   files?: DebridFileInfo[];  // File info with paths for multi-file torrents
   totalSize?: number;  // Total size in bytes from debrid status
@@ -146,6 +147,7 @@ export async function debridTorrent(
           return {
             service: service.name,
             torrentId,
+            name: status.name,
             downloadLinks: status.downloadLinks || status.files!.map(f => f.link),
             files: status.files,
             totalSize: status.totalSize,
@@ -217,6 +219,7 @@ export async function debridMagnet(
           return {
             service: service.name,
             torrentId,
+            name: status.name,
             downloadLinks: status.downloadLinks || status.files!.map(f => f.link),
             files: status.files,
             totalSize: status.totalSize,

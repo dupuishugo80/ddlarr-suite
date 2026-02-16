@@ -299,6 +299,7 @@ export class AllDebridClient implements DebridService {
 
       const result: DebridTorrentStatus = {
         id: torrentId,
+        name: magnet.filename || undefined,
         status,
         progress,
         totalSize: magnet.size,

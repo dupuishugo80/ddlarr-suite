@@ -906,6 +906,14 @@ class DownloadManager {
 
       console.log(`[DownloadManager] Magnet ready on ${result.service}, ${result.downloadLinks.length} file(s)`);
 
+      // Update name from debrid service if we had a generic fallback name
+      let currentName = name;
+      if (result.name && name.startsWith('magnet_')) {
+        currentName = result.name;
+        repository.updateDownloadName(hash, currentName);
+        console.log(`[DownloadManager] Updated magnet name from debrid: ${currentName}`);
+      }
+
       // If single file, download it directly
       // If multiple files, download each sequentially
       if (result.downloadLinks.length === 1) {
@@ -914,10 +922,10 @@ class DownloadManager {
 
         // Get real filename
         repository.updateDownloadStatusMessage(hash, 'Getting file info...');
-        let actualName = name;
+        let actualName = currentName;
         try {
-          actualName = await getRealFilename(debridedUrl, name);
-          if (actualName !== name) {
+          actualName = await getRealFilename(debridedUrl, currentName);
+          if (actualName !== currentName) {
             repository.updateDownloadName(hash, actualName);
           }
         } catch (error: any) {
@@ -965,7 +973,7 @@ class DownloadManager {
         console.log(`[DownloadManager] Multi-file magnet with ${result.downloadLinks.length} files`);
 
         // Create folder with torrent name
-        const torrentFolder = path.join(savePath, name);
+        const torrentFolder = path.join(savePath, currentName);
         if (!fs.existsSync(torrentFolder)) {
           fs.mkdirSync(torrentFolder, { recursive: true });
           console.log(`[DownloadManager] Created folder: ${torrentFolder}`);
