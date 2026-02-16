@@ -119,16 +119,14 @@ export function contentTypeToCategory(contentType: ContentType, quality?: string
   if (contentType === 'movie') {
     if (isUHD) return 2045;
     if (isHD) return 2040;
-    if (isSD) return 2030;
-    return 2000; // Unknown quality → generic category
+    return 2030; // SD or unknown quality
   }
 
   if (contentType === 'series') {
     if (isUHD) return 5045;
     if (isHD) return 5040;
-    if (isSD) return 5030;
-    return 5000; // Unknown quality → generic category
+    return 5030; // SD or unknown quality
   }
 
-  return 2000;
+  return 2030;
 }
