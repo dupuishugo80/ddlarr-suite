@@ -83,8 +83,8 @@ Cette approche utilise un dossier blackhole et un client de téléchargement ext
 ### 1. Cloner le repository
 
 ```bash
-git clone https://github.com/votre-repo/ddl_torznab.git
-cd ddl_torznab
+git clone git@github.com:z-m-g/ddlarr-suite.git
+cd ddlarr-suite
 ```
 
 ### 2. Configurer les variables d'environnement
