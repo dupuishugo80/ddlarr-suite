@@ -13,6 +13,8 @@ services:
       - DARKIWORLD_SERVICE_URL=http://ddl-darkiworld:${DARKIWORLD_PORT:-5002}
       - DLPROTECT_SERVICE_URL=http://dlprotect-resolver:${DLPROTECT_RESOLVER_PORT:-5000}
       - DLPROTECT_RESOLVE_AT=${DLPROTECT_RESOLVE_AT:-indexer}
+      - BOOKYS_URL=${BOOKYS_URL:-}
+      - FLARESOLVERR_URL=${FLARESOLVERR_URL:-}
     depends_on:
       dlprotect-resolver:
         condition: service_healthy
@@ -160,6 +162,7 @@ services:
       - DOWNLOAD_PATH=/downloads
       - TEMP_PATH=/downloads-temp
       - DLPROTECT_SERVICE_URL=http://dlprotect-resolver:${DLPROTECT_RESOLVER_PORT:-5000}
+      - FLARESOLVERR_URL=${FLARESOLVERR_URL:-}
       # Authentication
       - QB_USERNAME=${QB_USERNAME:-admin}
       - QB_PASSWORD=${QB_PASSWORD:-adminadmin}
@@ -182,4 +185,18 @@ services:
       - ${DOWNLOADS_PATH:-./downloads}:/downloads
       - ${DOWNLOADS_TEMP_PATH:-./downloads-temp}:/downloads-temp
       - ${QBITTORRENT_BLACKHOLE_PATH:-./blackhole}:/blackhole
+    restart: unless-stopped
+
+  # FlareSolverr - Cloudflare bypass proxy (optional)
+  # Required for sites with Cloudflare protection (e.g., Bookys)
+  # Use: docker compose --profile flaresolverr up -d
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    profiles:
+      - flaresolverr
+    ports:
+      - "8191:8191"
+    environment:
+      - LOG_LEVEL=${FLARESOLVERR_LOG_LEVEL:-info}
     restart: unless-stopped

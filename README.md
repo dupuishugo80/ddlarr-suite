@@ -33,7 +33,7 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 **Configure in Radarr/Sonarr:**
-1. Add Indexer: Settings > Indexers > Torznab > URL: `http://<IP>:9117` > API Path: `/api/wawacity`
+1. Add Indexer: Settings > Indexers > Torznab > URL: `http://<IP>:9117` > API Path: `/api/wawacity` (ou `/api/bookys` pour les ebooks)
 2. Add Download Client: Settings > Download Clients > qBittorrent > Host: `<IP>`, Port: `8080`
 
 ## Soutien
@@ -75,8 +75,11 @@ Cette approche utilise un dossier blackhole et un client de téléchargement ext
 |------|--------------|----------|-------------|
 | WawaCity | `WAWACITY_URL` | [@Wawacityofficiel](https://t.me/s/Wawacityofficiel) | Scraping HTML |
 | Zone-Téléchargement | `ZONETELECHARGER_URL` | [@ztofficiel](https://t.me/s/ztofficiel) | Scraping HTML |
+| Bookys | `BOOKYS_URL` | - | Journaux, magazines, ebooks |
 
 > **Auto-détection des URLs** : Si les variables `WAWACITY_URL` ou `ZONETELECHARGER_URL` sont vides, les URLs sont automatiquement récupérées depuis les canaux Telegram officiels.
+
+> **Bookys** : L'URL par défaut est `https://www6.bookys-ebooks.com`. Si le site est protégé par Cloudflare, configurer FlareSolverr (voir ci-dessous).
 
 ## Installation
 
@@ -100,6 +103,12 @@ cp .env.example .env
 # Laissez vide pour utiliser l'auto-détection, ou forcez une URL spécifique
 WAWACITY_URL=
 ZONETELECHARGER_URL=
+
+# Bookys (journaux, magazines, ebooks)
+BOOKYS_URL=https://www6.bookys-ebooks.com
+
+# FlareSolverr (optionnel - requis pour Bookys si Cloudflare est actif)
+# FLARESOLVERR_URL=http://flaresolverr:8191
 
 # Chemin du dossier blackhole (requis pour le downloader)
 BLACKHOLE_PATH=/chemin/vers/blackhole
@@ -153,7 +162,7 @@ docker compose --profile qbittorrent up -d
 3. Configurer :
    - **Name** : DDL Wawacity (ou autre)
    - **URL** : `http://<IP>:9117`
-   - **API Path** : `/api/wawacity` ou `/api/zonetelecharger` ou `/api/darkiworld_premium`
+   - **API Path** : `/api/wawacity` ou `/api/zonetelecharger` ou `/api/darkiworld_premium` ou `/api/bookys`
    - **API Key** : `ddl-torznab` (n'importe quelle valeur)
    - **Categories** : 2000, 2040, 2045 (Radarr) ou 5000, 5040, 5045 (Sonarr)
 4. Cliquer sur **Test** puis **Save**
@@ -272,7 +281,7 @@ docker compose --profile blackhole up -d
 3. Configurer :
    - **Name** : DDL Wawacity (ou autre)
    - **URL** : `http://<IP>:9117`
-   - **API Path** : `/api/wawacity` ou `/api/zonetelecharger` ou `/api/darkiworld_premium`
+   - **API Path** : `/api/wawacity` ou `/api/zonetelecharger` ou `/api/darkiworld_premium` ou `/api/bookys`
    - **API Key** : `ddl-torznab` (n'importe quelle valeur)
    - **Categories** : 2000, 2040, 2045
 4. Cliquer sur **Test** puis **Save**
@@ -300,7 +309,7 @@ docker compose --profile blackhole up -d
 3. Configurer :
    - **Name** : DDL Wawacity (ou autre)
    - **URL** : `http://<IP>:9117`
-   - **API Path** : `/api/wawacity` ou `/api/zonetelecharger` ou `/api/darkiworld_premium`
+   - **API Path** : `/api/wawacity` ou `/api/zonetelecharger` ou `/api/darkiworld_premium` ou `/api/bookys`
    - **API Key** : `ddl-torznab` (n'importe quelle valeur)
    - **Categories** : 5000, 5040, 5045
    - **Anime Categories** : 5070 (optionnel)
@@ -322,13 +331,33 @@ docker compose --profile blackhole up -d
 
 ## URLs Torznab disponibles
 
-| Site | URL | API Path |
-|------|-----|----------|
-| Wawacity | `http://<IP>:9117` | `/api/wawacity` |
-| ZoneTelecharger | `http://<IP>:9117` | `/api/zonetelecharger` |
-| Darkiworld Premium | `http://<IP>:9117` | `/api/darkiworld_premium` |
+| Site | URL | API Path | Catégories |
+|------|-----|----------|-----------|
+| Wawacity | `http://<IP>:9117` | `/api/wawacity` | Films, Séries, Anime |
+| ZoneTelecharger | `http://<IP>:9117` | `/api/zonetelecharger` | Films, Séries, Anime |
+| Darkiworld Premium | `http://<IP>:9117` | `/api/darkiworld_premium` | Films, Séries |
+| Bookys | `http://<IP>:9117` | `/api/bookys` | Ebooks (journaux, magazines) |
 
 > Remplacer `<IP>` par l'adresse du serveur (ex: `192.168.1.100`, `localhost`, ou votre domaine)
+
+### FlareSolverr (optionnel)
+
+FlareSolverr est un proxy qui permet de contourner la protection Cloudflare. Il est utilisé en fallback automatique quand un site retourne une erreur 403/503.
+
+**Requis pour Bookys si le site est protégé par Cloudflare.**
+
+**Lancer avec FlareSolverr :**
+```bash
+docker compose --profile qbittorrent --profile flaresolverr up -d
+```
+
+**Configuration :**
+```bash
+# Dans .env
+FLARESOLVERR_URL=http://flaresolverr:8191
+```
+
+> FlareSolverr tourne sur le port `8191` (non exposé par défaut, interne au réseau Docker).
 
 ### Intégration Prowlarr
 
@@ -443,6 +472,8 @@ Voir `.env.example` pour la liste complète.
 | `DLPROTECT_RESOLVER_PORT` | Port du résolveur dl-protect | 5000 |
 | `WAWACITY_URL` | URL de WawaCity (auto-détection si vide) | auto |
 | `ZONETELECHARGER_URL` | URL de Zone-Téléchargement (auto-détection si vide) | auto |
+| `BOOKYS_URL` | URL de Bookys | https://www6.bookys-ebooks.com |
+| `FLARESOLVERR_URL` | URL du service FlareSolverr (optionnel) | - |
 | `WAWACITY_TELEGRAM` | Canal Telegram WawaCity pour auto-détection | https://t.me/s/Wawacityofficiel |
 | `ZONETELECHARGER_TELEGRAM` | Canal Telegram ZT pour auto-détection | https://t.me/s/ztofficiel |
 | `BLACKHOLE_PATH` | Dossier blackhole | - |
@@ -521,6 +552,11 @@ DISABLE_REMOTE_DL_PROTECT_CACHE=true
 | TV/HD | 5040 | Séries HD |
 | TV/UHD | 5045 | Séries 4K |
 | Anime | 5070 | Anime |
+| Books | 7000 | Ebooks (Bookys) |
+| Books/Mags | 7010 | Magazines |
+| Books/EBook | 7020 | Ebooks |
+| Books/Comics | 7030 | Comics |
+| Books/Technical | 7050 | Technique |
 
 ## Structure du projet
 

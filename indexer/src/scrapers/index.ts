@@ -3,6 +3,7 @@ import { contentTypeToCategory } from './base.js';
 import { WawacityScraper } from './wawacity.js';
 import { ZoneTelechargerScraper } from './zonetelecharger.js';
 import { DarkiworldPremiumScraper } from './darkiworld.js';
+import { BookysScraper } from './bookys.js';
 import { SiteType, isSiteConfigured, getSiteUrl } from '../config.js';
 
 export type { BaseScraper } from './base.js';
@@ -32,6 +33,9 @@ export function getScraper(site: SiteType): BaseScraper | null {
     case 'darkiworld-premium':
       scraper = new DarkiworldPremiumScraper(url);
       break;
+    case 'bookys':
+      scraper = new BookysScraper(url);
+      break;
     default:
       return null;
   }
@@ -41,10 +45,10 @@ export function getScraper(site: SiteType): BaseScraper | null {
 }
 
 export function getAvailableSites(): SiteType[] {
-  const sites: SiteType[] = ['wawacity', 'zonetelecharger', 'darkiworld-premium'];
+  const sites: SiteType[] = ['wawacity', 'zonetelecharger', 'darkiworld-premium', 'bookys'];
   return sites.filter((site) => isSiteConfigured(site));
 }
 
 export function isValidSite(site: string): site is SiteType {
-  return ['wawacity', 'zonetelecharger', 'darkiworld-premium'].includes(site);
+  return ['wawacity', 'zonetelecharger', 'darkiworld-premium', 'bookys'].includes(site);
 }

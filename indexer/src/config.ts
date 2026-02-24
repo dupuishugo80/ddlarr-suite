@@ -14,6 +14,7 @@ export const config = {
     wawacity: process.env.WAWACITY_URL || '',
     zonetelecharger: process.env.ZONETELECHARGER_URL || '',
     darkiworld: process.env.DARKIWORLD_URL || '',
+    bookys: process.env.BOOKYS_URL || '',
   },
 
   // Telegram channel URLs for dynamic URL resolution
@@ -22,6 +23,7 @@ export const config = {
     zonetelecharger: process.env.ZONETELECHARGER_TELEGRAM || getDefaultTelegramChannel('zonetelecharger'),
   },
 
+  flaresolverrUrl: process.env.FLARESOLVERR_URL || '',
   dlprotectServiceUrl: process.env.DLPROTECT_SERVICE_URL || 'http://localhost:5000',
   dlprotectResolveAt: (process.env.DLPROTECT_RESOLVE_AT || 'indexer') as 'indexer' | 'downloader',
   darkiworldServiceUrl: process.env.DARKIWORLD_SERVICE_URL || 'http://localhost:5002',
@@ -35,9 +37,10 @@ const resolvedSiteUrls: Record<SiteType, string> = {
   zonetelecharger: config.sites.zonetelecharger,
   darkiworld: config.sites.darkiworld,
   'darkiworld-premium': config.darkiworldServiceUrl,
+  bookys: config.sites.bookys,
 };
 
-export type SiteType = 'wawacity' | 'zonetelecharger' | 'darkiworld' | 'darkiworld-premium';
+export type SiteType = 'wawacity' | 'zonetelecharger' | 'darkiworld' | 'darkiworld-premium' | 'bookys';
 
 // Sites that use Telegram for URL resolution (excludes darkiworld-premium which is a service)
 type TelegramSiteType = 'wawacity' | 'zonetelecharger';
