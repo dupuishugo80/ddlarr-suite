@@ -192,8 +192,11 @@ async function fetchResults(ctx: SearchContext): Promise<ScraperResult[]> {
     results = results.filter(result => {
       const category = contentTypeToCategory(result.contentType, result.quality);
       if (categoryFilter.includes(category)) return true;
-      const parentCategory = Math.floor(category / 1000) * 1000;
-      if (category === parentCategory && categoryFilter.some(cat => Math.floor(cat / 1000) * 1000 === parentCategory)) {
+      const resultParent = Math.floor(category / 1000) * 1000;
+      // Filter includes parent category → match any subcategory (e.g. filter=7000, result=7020)
+      if (categoryFilter.includes(resultParent)) return true;
+      // Result is a parent category → match if filter includes any subcategory of same parent
+      if (category === resultParent && categoryFilter.some(cat => Math.floor(cat / 1000) * 1000 === resultParent)) {
         return true;
       }
       console.log(`[Torznab] [${scraper.name}] Skipping "${result.title}" - category ${category} not in filter: ${categoryFilter.join(',')}`);
@@ -221,11 +224,12 @@ async function fetchResults(ctx: SearchContext): Promise<ScraperResult[]> {
  * Core search logic shared between endpoints
  */
 async function executeSearch(ctx: SearchContext): Promise<string> {
-  const { action, searchParams, scraper, request } = ctx;
+  const { action, searchParams, categoryFilter, scraper, request } = ctx;
 
-  // Si pas de query, retourne un résultat fictif (utile pour les tests de connexion Radarr/Sonarr)
-  if (!searchParams.q && !searchParams.imdbid && !searchParams.tmdbid && !searchParams.tvdbid) {
-    console.log(`[Torznab] Empty search query - returning dummy result (connection test)`);
+  // Si pas de query ET pas de filtre de catégorie → connection test Radarr/Sonarr
+  // Si pas de query MAIS filtre de catégorie → RSS poll (autobrr), on scrape réellement
+  if (!searchParams.q && !searchParams.imdbid && !searchParams.tmdbid && !searchParams.tvdbid && (!categoryFilter || categoryFilter.length === 0)) {
+    console.log(`[Torznab] Empty search query (no category filter) - returning dummy result (connection test)`);
     const dummyItem: TorznabItem = {
       title: 'DDL Torznab Connection Test',
       guid: 'ddl-torznab-test',
@@ -374,9 +378,11 @@ export async function torznabRoutes(app: FastifyInstance): Promise<void> {
       size: fileSize,
     });
 
+    // Content-Disposition filename must be ASCII only (Node.js rejects non-ASCII header values)
+    const safeFileName = fileName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, '_');
     reply
       .header('Content-Type', 'application/x-bittorrent')
-      .header('Content-Disposition', `attachment; filename="${fileName}.torrent"`)
+      .header('Content-Disposition', `attachment; filename="${safeFileName}.torrent"`)
       .send(torrentBuffer);
   });
 
@@ -425,8 +431,8 @@ export async function torznabRoutes(app: FastifyInstance): Promise<void> {
       year: extractedYear,
     };
 
-    // Connection test (empty query)
-    if (!searchParams.q && !searchParams.imdbid && !searchParams.tmdbid && !searchParams.tvdbid) {
+    // Connection test (empty query sans filtre de catégorie)
+    if (!searchParams.q && !searchParams.imdbid && !searchParams.tmdbid && !searchParams.tvdbid && (!categoryFilter || categoryFilter.length === 0)) {
       console.log(`[Torznab] Empty search query on /api - returning dummy result (connection test)`);
       const dummyItem: TorznabItem = {
         title: 'DDL Torznab Connection Test',

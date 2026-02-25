@@ -91,7 +91,7 @@ export function buildTorznabResponse(items: TorznabItem[], siteTitle: string, ba
       },
       link: torrentLink,
       pubDate: item.pubDate ? formatDate(item.pubDate) : formatDate(new Date()),
-      category: categoryToName(item.category),
+      category: String(item.category),
       size: item.size || 0,
       description: item.title,
       enclosure: {

@@ -10,10 +10,24 @@ interface BookysItem {
   pageUrl: string;
 }
 
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+interface ResultCache {
+  results: ScraperResult[];
+  fetchedAt: number;
+}
+
 export class BookysScraper implements BaseScraper {
   readonly name = 'Bookys';
+  private cache: ResultCache | null = null;
+  private fetching = false;
 
-  constructor(public readonly baseUrl: string) {}
+  constructor(public readonly baseUrl: string) {
+    // Pre-warm cache at startup
+    this.fetching = true;
+    console.log(`[Bookys] Pre-warming cache at startup...`);
+    this.refreshCache({ q: '', limit: 100, offset: 0 }).finally(() => { this.fetching = false; });
+  }
 
   /**
    * Generic search — only searches ebooks (journaux)
@@ -41,38 +55,79 @@ export class BookysScraper implements BaseScraper {
    */
   async searchEbooks(params: SearchParams): Promise<ScraperResult[]> {
     try {
-      let items: BookysItem[];
+      // RSS mode (no query): use cache, refresh in background to avoid timeouts
+      if (!params.q) {
+        const now = Date.now();
+        const cacheValid = this.cache && now - this.cache.fetchedAt < CACHE_TTL_MS;
 
-      if (params.q) {
-        items = await this.searchByQuery(params.q);
-      } else {
-        items = await this.fetchNewItems();
-      }
+        if (cacheValid) {
+          console.log(`[Bookys] Returning cached results (${this.cache!.results.length} items, age: ${Math.round((now - this.cache!.fetchedAt) / 1000)}s)`);
+          return this.cache!.results;
+        }
 
-      console.log(`[Bookys] Found ${items.length} items`);
+        // Cache miss or expired: trigger background refresh and return immediately
+        if (!this.fetching) {
+          this.fetching = true;
+          console.log(`[Bookys] Cache miss — starting background scrape`);
+          this.refreshCache(params).finally(() => { this.fetching = false; });
+        } else {
+          console.log(`[Bookys] Background scrape already in progress`);
+        }
 
-      if (items.length === 0) {
+        // Return stale cache if available, empty otherwise
+        if (this.cache) {
+          console.log(`[Bookys] Returning stale cache while refreshing`);
+          return this.cache.results;
+        }
+        console.log(`[Bookys] No cache yet — returning empty (will be ready on next poll)`);
         return [];
       }
 
-      // Visit detail pages (limit to 20 to avoid too many requests)
-      const pagesToVisit = items.slice(0, 20);
-      const allResults: ScraperResult[] = [];
+      // Search mode (with query): scrape synchronously
+      const items = await this.searchByQuery(params.q!);
+      console.log(`[Bookys] Found ${items.length} items for query "${params.q}"`);
+      if (items.length === 0) return [];
 
-      for (const item of pagesToVisit) {
-        try {
-          const results = await this.parseDetailPage(item, params);
-          allResults.push(...results);
-        } catch (error) {
-          console.error(`[Bookys] Error parsing detail page ${item.pageUrl}:`, error);
+      const pagesToVisit = items.slice(0, 20);
+      const concurrency = 5;
+      const allResults: ScraperResult[] = [];
+      for (let i = 0; i < pagesToVisit.length; i += concurrency) {
+        const batch = pagesToVisit.slice(i, i + concurrency);
+        const batchResults = await Promise.allSettled(batch.map(item => this.parseDetailPage(item, params)));
+        for (const result of batchResults) {
+          if (result.status === 'fulfilled') allResults.push(...result.value);
+          else console.error(`[Bookys] Error parsing detail page:`, result.reason);
         }
       }
-
-      console.log(`[Bookys] Total results after parsing detail pages: ${allResults.length}`);
+      console.log(`[Bookys] Total results: ${allResults.length}`);
       return allResults;
     } catch (error) {
       console.error(`[Bookys] Search error:`, error);
       return [];
+    }
+  }
+
+  /**
+   * Full scrape: fetch list + all detail pages, store in cache
+   */
+  private async refreshCache(params: SearchParams): Promise<void> {
+    try {
+      const items = await this.fetchNewItems();
+      console.log(`[Bookys] Background scrape: found ${items.length} items, fetching detail pages...`);
+      const pagesToVisit = items.slice(0, 20);
+      const concurrency = 5;
+      const allResults: ScraperResult[] = [];
+      for (let i = 0; i < pagesToVisit.length; i += concurrency) {
+        const batch = pagesToVisit.slice(i, i + concurrency);
+        const batchResults = await Promise.allSettled(batch.map(item => this.parseDetailPage(item, params)));
+        for (const result of batchResults) {
+          if (result.status === 'fulfilled') allResults.push(...result.value);
+        }
+      }
+      this.cache = { results: allResults, fetchedAt: Date.now() };
+      console.log(`[Bookys] Background scrape complete: ${allResults.length} results cached`);
+    } catch (error) {
+      console.error(`[Bookys] Background scrape failed:`, error);
     }
   }
 
@@ -159,6 +214,26 @@ export class BookysScraper implements BaseScraper {
   }
 
   /**
+   * Resolve a Bookys /dl/ intermediate page to the final hoster URL
+   */
+  private async resolveDownloadLink(dlUrl: string): Promise<string> {
+    const html = await fetchHtmlSmart(dlUrl);
+    const $ = cheerio.load(html);
+
+    // Find the external hoster link (not pointing back to bookys-ebooks.com)
+    let finalLink: string | undefined;
+    $('a.bys-host').each((_, el) => {
+      const href = $(el).attr('href');
+      if (href && !href.includes('bookys-ebooks.com')) {
+        finalLink = href.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+        return false; // break
+      }
+    });
+
+    return finalLink || dlUrl;
+  }
+
+  /**
    * Parse a detail page to extract download links
    */
   private async parseDetailPage(
@@ -203,13 +278,12 @@ export class BookysScraper implements BaseScraper {
 
         const hosterLower = hoster.toLowerCase();
 
-        // Filter by hoster if specified
-        if (params.hoster) {
-          const allowedHosters = params.hoster.toLowerCase().split(',').map(h => h.trim());
-          if (!allowedHosters.some(allowed => hosterLower.includes(allowed) || allowed.includes(hosterLower))) {
-            console.log(`[Bookys] Skipping hoster "${hoster}" - not in allowed list: ${params.hoster}`);
-            return;
-          }
+        // Filter by hoster (params.hoster if set, otherwise default from config)
+        const hosterFilter = params.hoster || config.bookysHoster;
+        const allowedHosters = hosterFilter.toLowerCase().split(',').map(h => h.trim());
+        if (!allowedHosters.some(allowed => hosterLower.includes(allowed) || allowed.includes(hosterLower))) {
+          console.log(`[Bookys] Skipping hoster "${hoster}" - not in allowed list: ${hosterFilter}`);
+          return;
         }
 
         // Format
@@ -266,7 +340,24 @@ export class BookysScraper implements BaseScraper {
       }
     });
 
-    console.log(`[Bookys] Found ${results.length} download links on detail page`);
-    return results;
+    // Resolve intermediate /dl/ links to final hoster URLs
+    const resolvedResults = await Promise.all(
+      results.map(async (result) => {
+        if (result.link.includes('/dl/')) {
+          try {
+            const finalLink = await this.resolveDownloadLink(result.link);
+            console.log(`[Bookys] Resolved link: ${result.link} → ${finalLink}`);
+            return { ...result, link: finalLink };
+          } catch (err) {
+            console.error(`[Bookys] Failed to resolve link ${result.link}:`, err);
+            return result;
+          }
+        }
+        return result;
+      })
+    );
+
+    console.log(`[Bookys] Found ${resolvedResults.length} download links on detail page`);
+    return resolvedResults;
   }
 }

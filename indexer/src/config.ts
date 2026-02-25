@@ -29,6 +29,7 @@ export const config = {
   darkiworldServiceUrl: process.env.DARKIWORLD_SERVICE_URL || 'http://localhost:5002',
   searchMaxPages: parseInt(process.env.SEARCH_MAX_PAGES || '5', 10),
   disableRemoteDlProtectCache: process.env.DISABLE_REMOTE_DL_PROTECT_CACHE === 'true',
+  bookysHoster: process.env.BOOKYS_HOSTER || '1fichier',
 } as const;
 
 // Resolved site URLs (populated at initialization or from env)

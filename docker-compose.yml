@@ -2,6 +2,7 @@ services:
   # Torznab Indexer - provides search API for Radarr/Sonarr
   ddl-torznab:
     build: ./indexer
+    image: ddl-torznab:bookys
     container_name: ddl-torznab
     ports:
       - "${INDEXER_PORT:-9117}:${INDEXER_PORT:-9117}"
@@ -14,6 +15,7 @@ services:
       - DLPROTECT_SERVICE_URL=http://dlprotect-resolver:${DLPROTECT_RESOLVER_PORT:-5000}
       - DLPROTECT_RESOLVE_AT=${DLPROTECT_RESOLVE_AT:-indexer}
       - BOOKYS_URL=${BOOKYS_URL:-}
+      - BOOKYS_HOSTER=${BOOKYS_HOSTER:-1fichier}
       - FLARESOLVERR_URL=${FLARESOLVERR_URL:-}
     depends_on:
       dlprotect-resolver:
@@ -49,9 +51,9 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # Botasaurus service for dl-protect resolution
+  # DL-Protect resolver (official image - same as production stack)
   dlprotect-resolver:
-    build: ./botasaurus-service
+    image: ghcr.io/z-m-g/dlprotect-resolver:latest
     container_name: dlprotect-resolver
     ports:
       - "${DLPROTECT_RESOLVER_PORT:-5000}:${DLPROTECT_RESOLVER_PORT:-5000}"
@@ -59,9 +61,8 @@ services:
       - PYTHONUNBUFFERED=1
       - CACHE_DIR=/app/cache
       - PORT=${DLPROTECT_RESOLVER_PORT:-5000}
-      - DEBUG=${DEBUG:-false}
     volumes:
-      - ./cache:/app/cache
+      - dlprotect-cache:/app/cache
     healthcheck:
       test:
         [
@@ -148,6 +149,7 @@ services:
   # Use: docker compose --profile qbittorrent up -d
   ddl-qbittorrent:
     build: ./qbittorrent
+    image: ddl-qbittorrent:bookys
     container_name: ddl-qbittorrent
     profiles:
       - qbittorrent
@@ -200,3 +202,6 @@ services:
     environment:
       - LOG_LEVEL=${FLARESOLVERR_LOG_LEVEL:-info}
     restart: unless-stopped
+
+volumes:
+  dlprotect-cache:
