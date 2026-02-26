@@ -33,6 +33,7 @@ services:
       - DARKIWORLD_ALLDEBRID_KEY=${ALLDEBRID_API_KEY}
     volumes:
       - ./darkiworld/output:/app/output
+      - ${DARKIWORLD_CONFIG_PATH:-./darkiworld-config}:/app/config
     healthcheck:
       test:
         [

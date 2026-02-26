@@ -7,6 +7,7 @@ For Docker: uses parent .env file
 """
 
 import os
+import json
 import logging
 import requests
 import time
@@ -127,16 +128,55 @@ ALLDEBRID_API_URL = 'https://api.alldebrid.com/v4/link/unlock'
 # Server configuration
 PORT = int(os.getenv('DARKIWORLD_PORT', 5002))
 
+# Persistent config file path (saved to /app/config/ which should be a Docker volume)
+CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config')
+CONFIG_FILE = os.path.join(CONFIG_DIR, 'credentials.json')
+
+
+def _load_config_from_disk() -> dict:
+    """Load saved credentials from disk, returns defaults if file doesn't exist."""
+    defaults = {
+        'enabled': False,
+        'email': '',
+        'password': '',
+        'authenticated': False,
+    }
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, 'r') as f:
+                saved = json.load(f)
+            # Merge saved values into defaults (in case new keys are added later)
+            defaults.update(saved)
+            # Always reset authenticated on startup - session cookies are not persisted
+            defaults['authenticated'] = False
+            logger.info(f"Loaded credentials from {CONFIG_FILE} (email: {defaults['email'] or 'not set'})")
+    except Exception as e:
+        logger.warning(f"Failed to load config from {CONFIG_FILE}: {e}")
+    return defaults
+
+
+def _save_config_to_disk() -> None:
+    """Save current credentials to disk for persistence across restarts."""
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        data = {
+            'enabled': runtime_config['enabled'],
+            'email': runtime_config['email'],
+            'password': runtime_config['password'],
+        }
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(data, f, indent=2)
+        logger.info(f"Saved credentials to {CONFIG_FILE}")
+    except Exception as e:
+        logger.warning(f"Failed to save config to {CONFIG_FILE}: {e}")
+
+
 # Runtime configuration (can be updated via API)
 # This allows dynamic configuration from the indexer UI
 # Darkiworld is disabled by default - must pass login test to enable
 # Credentials are configured via the web UI, not environment variables
-runtime_config = {
-    'enabled': False,
-    'email': '',
-    'password': '',
-    'authenticated': False,
-}
+# On startup, credentials are loaded from disk if previously saved
+runtime_config = _load_config_from_disk()
 
 
 def update_runtime_config(new_config: dict) -> dict:
@@ -164,7 +204,9 @@ def update_runtime_config(new_config: dict) -> dict:
         runtime_config['password'] = new_config['password']
         runtime_config['authenticated'] = False  # Need to re-login with new password
         logger.info("Runtime config: password updated, will re-authenticate")
-    
+
+    _save_config_to_disk()
+
     return get_runtime_config()
 
 
