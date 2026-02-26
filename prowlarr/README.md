@@ -18,7 +18,7 @@ Cette définition Cardigann permet d'ajouter DDL Torznab comme indexeur natif da
 3. Ajouter l'indexeur :
    - Aller dans **Settings > Indexers > Add Indexer**
    - Chercher "DDL Torznab"
-   - Configurer l'URL (par défaut : `http://ddl-torznab:3000`)
+   - Configurer l'URL (par défaut : `http://ddl-torznab:9117`)
    - Sélectionner le site source (Darkiworld, ZoneTelecharger, WawaCity)
 
 ### Option 2 : Generic Torznab
@@ -29,7 +29,7 @@ Si la définition custom ne fonctionne pas, utiliser l'indexeur Torznab généri
 2. Sélectionner **Generic Torznab**
 3. Configurer :
    - **Name** : DDL Torznab - Darkiworld (ou autre site)
-   - **URL** : `http://ddl-torznab:3000/api/darkiworld`
+   - **URL** : `http://ddl-torznab:9117/api/darkiworld`
    - **API Key** : laisser vide
    - **Categories** : Movies, TV
 
@@ -37,7 +37,7 @@ Si la définition custom ne fonctionne pas, utiliser l'indexeur Torznab généri
 
 | Paramètre | Description | Exemple |
 |-----------|-------------|---------|
-| DDL Torznab URL | URL du service DDL Torznab | `http://ddl-torznab:3000` |
+| DDL Torznab URL | URL du service DDL Torznab | `http://ddl-torznab:9117` |
 | Source Site | Site DDL à utiliser | `darkiworld` |
 
 ## Sites disponibles
@@ -50,8 +50,8 @@ Si la définition custom ne fonctionne pas, utiliser l'indexeur Torznab généri
 
 Pour filtrer par hébergeur spécifique, utiliser l'URL avec le chemin :
 ```
-http://ddl-torznab:3000/api/darkiworld/1fichier
-http://ddl-torznab:3000/api/darkiworld/uptobox,1fichier
+http://ddl-torznab:9117/api/darkiworld/1fichier
+http://ddl-torznab:9117/api/darkiworld/uptobox,1fichier
 ```
 
 ## Docker Compose
