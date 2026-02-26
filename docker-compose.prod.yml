@@ -53,6 +53,8 @@ services:
   ddl-darkiworld:
     image: ghcr.io/z-m-g/darkiworld:latest
     container_name: ddl-darkiworld
+    profiles:
+      - darkiworld
     ports:
       - "${DARKIWORLD_PORT:-5002}:5002"
     environment:
@@ -62,6 +64,7 @@ services:
       - DARKIWORLD_ALLDEBRID_KEY=${ALLDEBRID_API_KEY}
     volumes:
       - darkiworld-output:/app/output
+      - darkiworld-config:/app/config
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
       interval: 10s
@@ -108,4 +111,5 @@ services:
 volumes:
   dlprotect-cache:
   darkiworld-output:
+  darkiworld-config:
   qbittorrent-data:
