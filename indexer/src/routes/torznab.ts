@@ -119,34 +119,17 @@ async function processResults(results: ScraperResult[]): Promise<TorznabItem[]> 
 }
 
 /**
- * Core search logic shared between endpoints
+ * Fetch raw search results from a scraper (no XML building, no pagination)
  */
-async function executeSearch(ctx: SearchContext): Promise<string> {
-  const { action, searchParams, categoryFilter, scraper, request } = ctx;
-
-  // Si pas de query, retourne un résultat fictif (utile pour les tests de connexion Radarr/Sonarr)
-  if (!searchParams.q && !searchParams.imdbid && !searchParams.tmdbid && !searchParams.tvdbid) {
-    console.log(`[Torznab] Empty search query - returning dummy result (connection test)`);
-    const dummyItem: TorznabItem = {
-      title: 'DDL Torznab Connection Test',
-      guid: 'ddl-torznab-test',
-      link: 'https://example.com/test',
-      pubDate: new Date(),
-      size: 1500000000, // 1.5 GB
-      category: action === 'tvsearch' ? TorznabCategory.TVHD : TorznabCategory.MoviesHD,
-      quality: '1080p',
-      language: 'MULTI',
-    };
-    return buildTorznabResponse([dummyItem], scraper.name);
-  }
+async function fetchResults(ctx: SearchContext): Promise<ScraperResult[]> {
+  const { action, searchParams, categoryFilter, scraper } = ctx;
 
   let results: ScraperResult[] = [];
 
-  console.log(`[Torznab] Action: "${action}", Categories: ${categoryFilter ? categoryFilter.join(',') : 'none'}`);
+  console.log(`[Torznab] [${scraper.name}] Action: "${action}", Categories: ${categoryFilter ? categoryFilter.join(',') : 'none'}`);
 
   switch (action) {
     case 'search': {
-      // For generic search, check categories to determine what to search
       const searchPromises: Promise<ScraperResult[]>[] = [];
 
       const shouldSearchMovies = !categoryFilter || categoryFilter.length === 0 ||
@@ -158,7 +141,7 @@ async function executeSearch(ctx: SearchContext): Promise<string> {
       const shouldSearchEbooks = !categoryFilter || categoryFilter.length === 0 ||
         categoryFilter.some(cat => EBOOK_CATEGORIES.includes(cat));
 
-      console.log(`[Torznab] Search filters - Movies: ${shouldSearchMovies}, TV: ${shouldSearchTV}, Anime: ${shouldSearchAnime}, Ebooks: ${shouldSearchEbooks}`);
+      console.log(`[Torznab] [${scraper.name}] Search filters - Movies: ${shouldSearchMovies}, TV: ${shouldSearchTV}, Anime: ${shouldSearchAnime}, Ebooks: ${shouldSearchEbooks}`);
 
       if (shouldSearchMovies) {
         searchPromises.push(scraper.searchMovies(searchParams));
@@ -185,59 +168,82 @@ async function executeSearch(ctx: SearchContext): Promise<string> {
       if (searchParams.imdbid) {
         results = await scraper.searchMovies(searchParams);
       } else {
-        console.log(`[Torznab] Skipping movie search without imdbid to avoid duplicates`);
-        results = [];
+        console.log(`[Torznab] [${scraper.name}] Skipping movie search without imdbid to avoid duplicates`);
       }
       break;
     case 'tvsearch':
       if (searchParams.imdbid) {
         results = await scraper.searchSeries(searchParams);
       } else {
-        console.log(`[Torznab] Skipping tvsearch without imdbid to avoid duplicates`);
-        results = [];
+        console.log(`[Torznab] [${scraper.name}] Skipping tvsearch without imdbid to avoid duplicates`);
       }
       break;
     case 'book':
       if (scraper.searchEbooks) {
         results = await scraper.searchEbooks(searchParams);
       } else {
-        console.log(`[Torznab] Scraper ${scraper.name} does not support ebook search`);
-        results = [];
+        console.log(`[Torznab] [${scraper.name}] Scraper does not support ebook search`);
       }
       break;
   }
 
   // Filter by category AFTER search (for fine-grained quality filtering like HD vs UHD)
-  // Parent categories (2000, 5000, 7000) match any of their subcategories
   if (categoryFilter && categoryFilter.length > 0) {
     results = results.filter(result => {
       const category = contentTypeToCategory(result.contentType, result.quality);
-      if (categoryFilter.includes(category)) {
+      if (categoryFilter.includes(category)) return true;
+      const resultParent = Math.floor(category / 1000) * 1000;
+      // Filter includes parent category → match any subcategory (e.g. filter=7000, result=7020)
+      if (categoryFilter.includes(resultParent)) return true;
+      // Result is a parent category → match if filter includes any subcategory of same parent
+      if (category === resultParent && categoryFilter.some(cat => Math.floor(cat / 1000) * 1000 === resultParent)) {
         return true;
       }
-      // If result has a generic parent category (unknown quality),
-      // include it when any subcategory of that parent is requested
-      const parentCategory = Math.floor(category / 1000) * 1000;
-      if (category === parentCategory && categoryFilter.some(cat => Math.floor(cat / 1000) * 1000 === parentCategory)) {
-        return true;
-      }
-      console.log(`[Torznab] Skipping "${result.title}" - category ${category} not in filter: ${categoryFilter.join(',')}`);
+      console.log(`[Torznab] [${scraper.name}] Skipping "${result.title}" - category ${category} not in filter: ${categoryFilter.join(',')}`);
       return false;
     });
   }
 
-  // Filter out results without valid size (Radarr/Sonarr need size info)
+  // Filter out results without valid size
   const beforeSizeFilter = results.length;
   results = results.filter(result => {
     if (!result.size || result.size <= 0) {
-      console.log(`[Torznab] Skipping "${result.title}" - no valid size`);
+      console.log(`[Torznab] [${scraper.name}] Skipping "${result.title}" - no valid size`);
       return false;
     }
     return true;
   });
   if (beforeSizeFilter !== results.length) {
-    console.log(`[Torznab] Filtered out ${beforeSizeFilter - results.length} results without size`);
+    console.log(`[Torznab] [${scraper.name}] Filtered out ${beforeSizeFilter - results.length} results without size`);
   }
+
+  return results;
+}
+
+/**
+ * Core search logic shared between endpoints
+ */
+async function executeSearch(ctx: SearchContext): Promise<string> {
+  const { action, searchParams, categoryFilter, scraper, request } = ctx;
+
+  // Si pas de query ET pas de filtre de catégorie → connection test Radarr/Sonarr
+  // Si pas de query MAIS filtre de catégorie → RSS poll (autobrr), on scrape réellement
+  if (!searchParams.q && !searchParams.imdbid && !searchParams.tmdbid && !searchParams.tvdbid && (!categoryFilter || categoryFilter.length === 0)) {
+    console.log(`[Torznab] Empty search query (no category filter) - returning dummy result (connection test)`);
+    const dummyItem: TorznabItem = {
+      title: 'DDL Torznab Connection Test',
+      guid: 'ddl-torznab-test',
+      link: 'https://example.com/test',
+      pubDate: new Date(),
+      size: 1500000000,
+      category: action === 'tvsearch' ? TorznabCategory.TVHD : TorznabCategory.MoviesHD,
+      quality: '1080p',
+      language: 'MULTI',
+    };
+    return buildTorznabResponse([dummyItem], scraper.name);
+  }
+
+  const results = await fetchResults(ctx);
 
   // Process results (resolve dl-protect links)
   const items = await processResults(results);
@@ -372,28 +378,103 @@ export async function torznabRoutes(app: FastifyInstance): Promise<void> {
       size: fileSize,
     });
 
+    // Content-Disposition filename must be ASCII only (Node.js rejects non-ASCII header values)
+    const safeFileName = fileName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, '_');
     reply
       .header('Content-Type', 'application/x-bittorrent')
-      .header('Content-Disposition', `attachment; filename="${fileName}.torrent"`)
+      .header('Content-Disposition', `attachment; filename="${safeFileName}.torrent"`)
       .send(torrentBuffer);
   });
 
   // Generic Torznab API endpoint (without site parameter)
-  // Used by Radarr/Sonarr for capabilities check
+  // Aggregates results from all configured sites
   app.get<{
     Querystring: TorznabQuerystring;
   }>('/api', async (request: FastifyRequest<{ Querystring: TorznabQuerystring }>, reply: FastifyReply) => {
-    const { t: action } = request.query;
+    const { t: action, q, cat, limit, offset, imdbid, tmdbid, tvdbid, season, ep, hoster, year } = request.query;
 
     reply.type('application/xml');
 
+    const sites = getAvailableSites();
+
     if (action === 'caps') {
-      const sites = getAvailableSites();
       const siteName = sites.length > 0 ? sites.join(', ') : 'DDL Torznab';
       return buildCapsResponse(getCapsForSite(siteName));
     }
 
-    return buildErrorResponse(100, `Please specify a site. Available: ${getAvailableSites().join(', ')}. Use /api/{site}?t=...`);
+    if (!action || !['search', 'tvsearch', 'movie', 'book'].includes(action)) {
+      return buildErrorResponse(200, 'Missing or invalid parameter t');
+    }
+
+    const categoryFilter = cat
+      ? cat.split(',').map(c => parseInt(c.trim(), 10)).filter(c => !isNaN(c))
+      : null;
+
+    let searchQuery = q || '';
+    let extractedYear = year;
+    const yearMatch = searchQuery.match(/^(.+?)\s+(\d{4})$/);
+    if (yearMatch) {
+      searchQuery = yearMatch[1].trim();
+      extractedYear = extractedYear || yearMatch[2];
+    }
+
+    const searchParams: SearchParams = {
+      q: searchQuery,
+      limit: limit ? parseInt(limit, 10) : 100,
+      offset: offset ? parseInt(offset, 10) : 0,
+      imdbid,
+      tmdbid,
+      tvdbid,
+      season,
+      ep,
+      hoster,
+      year: extractedYear,
+    };
+
+    // Connection test (empty query sans filtre de catégorie)
+    if (!searchParams.q && !searchParams.imdbid && !searchParams.tmdbid && !searchParams.tvdbid && (!categoryFilter || categoryFilter.length === 0)) {
+      console.log(`[Torznab] Empty search query on /api - returning dummy result (connection test)`);
+      const dummyItem: TorznabItem = {
+        title: 'DDL Torznab Connection Test',
+        guid: 'ddl-torznab-test',
+        link: 'https://example.com/test',
+        pubDate: new Date(),
+        size: 1500000000,
+        category: action === 'tvsearch' ? TorznabCategory.TVHD : TorznabCategory.MoviesHD,
+        quality: '1080p',
+        language: 'MULTI',
+      };
+      return buildTorznabResponse([dummyItem], 'DDL Torznab');
+    }
+
+    // Search all configured sites in parallel and aggregate results
+    const siteSearches = sites.map(async (site) => {
+      const scraper = getScraper(site as SiteType);
+      if (!scraper) return [];
+      try {
+        return await fetchResults({ action, searchParams, categoryFilter, scraper, request });
+      } catch (error) {
+        console.error(`[Torznab] Error searching site ${site}:`, error);
+        return [];
+      }
+    });
+
+    const siteResults = await Promise.all(siteSearches);
+    const allResults = siteResults.flat();
+
+    console.log(`[Torznab] /api aggregated ${allResults.length} results from ${sites.length} sites`);
+
+    const items = await processResults(allResults);
+
+    const start = searchParams.offset || 0;
+    const end = start + (searchParams.limit || 100);
+    const paginatedItems = items.slice(start, end);
+
+    const protocol = request.headers['x-forwarded-proto'] || 'http';
+    const host = request.headers['x-forwarded-host'] || request.headers.host;
+    const baseUrl = `${protocol}://${host}`;
+
+    return buildTorznabResponse(paginatedItems, sites.join(', '), baseUrl);
   });
 
   // Torznab API endpoint: /api/:site

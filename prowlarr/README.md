@@ -29,9 +29,15 @@ Si la définition custom ne fonctionne pas, utiliser l'indexeur Torznab généri
 2. Sélectionner **Generic Torznab**
 3. Configurer :
    - **Name** : DDL Torznab - Darkiworld (ou autre site)
-   - **URL** : `http://ddl-torznab:9117/api/darkiworld`
+   - **URL** : `http://ddl-torznab:9117/api/darkiworld` (remplacer `darkiworld` par le site voulu)
    - **API Key** : laisser vide
-   - **Categories** : Movies, TV
+   - **Categories** : Movies, TV (ou Books pour Bookys)
+
+Exemples d'URLs par site :
+- `http://ddl-torznab:9117/api/wawacity`
+- `http://ddl-torznab:9117/api/zonetelecharger`
+- `http://ddl-torznab:9117/api/darkiworld_premium`
+- `http://ddl-torznab:9117/api/bookys` (catégories Books)
 
 ## Configuration
 
@@ -45,6 +51,7 @@ Si la définition custom ne fonctionne pas, utiliser l'indexeur Torznab généri
 - **Darkiworld** : Films et séries FR
 - **ZoneTelecharger** : Films et séries FR
 - **WawaCity** : Films, séries et ebooks FR
+- **Bookys** : Journaux, magazines et ebooks (catégories Books)
 
 ## Filtrer par hébergeur
 

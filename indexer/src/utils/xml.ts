@@ -10,7 +10,9 @@ const xmlBuilder = new XMLBuilder({
 });
 
 function formatDate(date: Date): string {
-  return date.toUTCString();
+  // RFC1123Z format with numeric timezone offset (+0000) instead of "GMT"
+  // Required by autobrr and other Go-based consumers that use time.RFC1123Z
+  return date.toUTCString().replace('GMT', '+0000');
 }
 
 function categoryToName(category: TorznabCategory): string {
@@ -89,7 +91,7 @@ export function buildTorznabResponse(items: TorznabItem[], siteTitle: string, ba
       },
       link: torrentLink,
       pubDate: item.pubDate ? formatDate(item.pubDate) : formatDate(new Date()),
-      category: categoryToName(item.category),
+      category: String(item.category),
       size: item.size || 0,
       description: item.title,
       enclosure: {

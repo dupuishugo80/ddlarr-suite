@@ -4,6 +4,7 @@ export interface Config {
   downloadPath: string;
   tempPath: string;
   dlprotectServiceUrl: string;
+  flaresolverrUrl: string;
   maxConcurrentDownloads: number;
   autoExtractArchive: boolean;
   autoRemoveCompletedAfter: number;  // Minutes, 0 = disabled
@@ -43,6 +44,7 @@ export function getConfig(): Config {
       downloadPath: process.env.DOWNLOAD_PATH || '/downloads',
       tempPath: process.env.TEMP_PATH || '/downloads-temp',
       dlprotectServiceUrl: process.env.DLPROTECT_SERVICE_URL || 'http://dlprotect-resolver:5000',
+      flaresolverrUrl: process.env.FLARESOLVERR_URL || '',
       maxConcurrentDownloads: parseInt(process.env.MAX_CONCURRENT_DOWNLOADS || '3', 10),
       autoExtractArchive: process.env.AUTO_EXTRACT_ARCHIVE !== '0',  // Enabled by default
       autoRemoveCompletedAfter: parseInt(process.env.AUTO_REMOVE_COMPLETED_AFTER || '0', 10),  // Minutes, 0 = disabled
