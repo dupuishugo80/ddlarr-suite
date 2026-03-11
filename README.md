@@ -18,11 +18,15 @@ mkdir -p downloads downloads-temp
 
 # 4. Start services
 docker compose -f docker-compose.prod.yml up -d
+
+# Start with FlareSolverr (optional, required for Bookys if Cloudflare is active)
+docker compose -f docker-compose.prod.yml up -d flaresolverr
 ```
 
 **Access:**
 - Torznab Indexer: `http://localhost:9117`
 - qBittorrent UI: `http://localhost:8080` (admin/adminadmin)
+- FlareSolverr: `http://localhost:8191` (interne par défaut)
 
 ## Update
 
