@@ -226,10 +226,16 @@ async function fetchResults(ctx: SearchContext): Promise<ScraperResult[]> {
 async function executeSearch(ctx: SearchContext): Promise<string> {
   const { action, searchParams, categoryFilter, scraper, request } = ctx;
 
-  // Si pas de query ET pas de filtre de catégorie → connection test Radarr/Sonarr
-  // Si pas de query MAIS filtre de catégorie → RSS poll (autobrr), on scrape réellement
-  if (!searchParams.q && !searchParams.imdbid && !searchParams.tmdbid && !searchParams.tvdbid && (!categoryFilter || categoryFilter.length === 0)) {
-    console.log(`[Torznab] Empty search query (no category filter) - returning dummy result (connection test)`);
+  const isEmptyQuery = !searchParams.q && !searchParams.imdbid && !searchParams.tmdbid && !searchParams.tvdbid;
+
+  const results = await fetchResults(ctx);
+
+  // Process results (resolve dl-protect links)
+  const items = await processResults(results);
+
+  // Requête vide sans résultats → connection test Radarr/Sonarr/Prowlarr, retourne un dummy
+  if (isEmptyQuery && items.length === 0) {
+    console.log(`[Torznab] Empty search query with no results - returning dummy result (connection test)`);
     const dummyItem: TorznabItem = {
       title: 'DDL Torznab Connection Test',
       guid: 'ddl-torznab-test',
@@ -242,11 +248,6 @@ async function executeSearch(ctx: SearchContext): Promise<string> {
     };
     return buildTorznabResponse([dummyItem], scraper.name);
   }
-
-  const results = await fetchResults(ctx);
-
-  // Process results (resolve dl-protect links)
-  const items = await processResults(results);
 
   // Apply limit and offset
   const start = searchParams.offset || 0;
@@ -431,21 +432,7 @@ export async function torznabRoutes(app: FastifyInstance): Promise<void> {
       year: extractedYear,
     };
 
-    // Connection test (empty query sans filtre de catégorie)
-    if (!searchParams.q && !searchParams.imdbid && !searchParams.tmdbid && !searchParams.tvdbid && (!categoryFilter || categoryFilter.length === 0)) {
-      console.log(`[Torznab] Empty search query on /api - returning dummy result (connection test)`);
-      const dummyItem: TorznabItem = {
-        title: 'DDL Torznab Connection Test',
-        guid: 'ddl-torznab-test',
-        link: 'https://example.com/test',
-        pubDate: new Date(),
-        size: 1500000000,
-        category: action === 'tvsearch' ? TorznabCategory.TVHD : TorznabCategory.MoviesHD,
-        quality: '1080p',
-        language: 'MULTI',
-      };
-      return buildTorznabResponse([dummyItem], 'DDL Torznab');
-    }
+    const isEmptyQuery = !searchParams.q && !searchParams.imdbid && !searchParams.tmdbid && !searchParams.tvdbid;
 
     // Search all configured sites in parallel and aggregate results
     const siteSearches = sites.map(async (site) => {
@@ -465,6 +452,22 @@ export async function torznabRoutes(app: FastifyInstance): Promise<void> {
     console.log(`[Torznab] /api aggregated ${allResults.length} results from ${sites.length} sites`);
 
     const items = await processResults(allResults);
+
+    // Requête vide sans résultats → connection test, retourne un dummy
+    if (isEmptyQuery && items.length === 0) {
+      console.log(`[Torznab] Empty search query on /api with no results - returning dummy result (connection test)`);
+      const dummyItem: TorznabItem = {
+        title: 'DDL Torznab Connection Test',
+        guid: 'ddl-torznab-test',
+        link: 'https://example.com/test',
+        pubDate: new Date(),
+        size: 1500000000,
+        category: action === 'tvsearch' ? TorznabCategory.TVHD : TorznabCategory.MoviesHD,
+        quality: '1080p',
+        language: 'MULTI',
+      };
+      return buildTorznabResponse([dummyItem], 'DDL Torznab');
+    }
 
     const start = searchParams.offset || 0;
     const end = start + (searchParams.limit || 100);
