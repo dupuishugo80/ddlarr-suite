@@ -26,6 +26,9 @@ services:
       - DARKIWORLD_SERVICE_URL=http://ddl-darkiworld:5002
       - DLPROTECT_SERVICE_URL=http://dlprotect-resolver:5000
       - DLPROTECT_RESOLVE_AT=${DLPROTECT_RESOLVE_AT:-indexer}
+      - BOOKYS_URL=${BOOKYS_URL:-}
+      - BOOKYS_HOSTER=${BOOKYS_HOSTER:-1fichier}
+      - FLARESOLVERR_URL=${FLARESOLVERR_URL:-http://flaresolverr:8191}
     depends_on:
       dlprotect-resolver:
         condition: service_healthy
@@ -88,6 +91,7 @@ services:
       - DOWNLOAD_PATH=/downloads
       - TEMP_PATH=/downloads-temp
       - DLPROTECT_SERVICE_URL=http://dlprotect-resolver:5000
+      - FLARESOLVERR_URL=${FLARESOLVERR_URL:-http://flaresolverr:8191}
       # Authentication (change these!)
       - QB_USERNAME=${QB_USERNAME:-admin}
       - QB_PASSWORD=${QB_PASSWORD:-adminadmin}
@@ -106,6 +110,17 @@ services:
       - qbittorrent-data:/data
       - ${DOWNLOADS_PATH:-./downloads}:/downloads
       - ${DOWNLOADS_TEMP_PATH:-./downloads-temp}:/downloads-temp
+    restart: unless-stopped
+
+  # FlareSolverr - Cloudflare bypass proxy
+  # Use: docker compose -f docker-compose.prod.yml up -d
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    ports:
+      - "8191:8191"
+    environment:
+      - LOG_LEVEL=${FLARESOLVERR_LOG_LEVEL:-info}
     restart: unless-stopped
 
 volumes:

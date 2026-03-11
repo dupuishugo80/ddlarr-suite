@@ -8,6 +8,7 @@ import {
   extractSizeFromTorrentBuffer,
 } from '../utils/torrent.js';
 import { isDlProtectLink, resolveDlProtectLink } from '../utils/dlprotect.js';
+import { isBookysLink, resolveBookysLink } from '../utils/bookys.js';
 import { debridLink, debridTorrent, debridMagnet, isAnyDebridEnabled, getTorrentEnabledServices } from '../debrid/index.js';
 import { startDownload, stopDownload, pauseDownload, getDownloadProgress, isDownloadActive, isDownloadPaused, getPausedDownloadInfo } from './downloader.js';
 import * as repository from '../db/repository.js';
@@ -1183,6 +1184,24 @@ class DownloadManager {
         } catch (error: any) {
           repository.updateDownloadState(hash, 'error', `dl-protect failed: ${error.message}`);
           console.error(`[DownloadManager] dl-protect resolution failed: ${error.message}`);
+          this.processQueue();
+          return;
+        }
+      }
+
+      // Resolve Bookys download links (/dl/ intermediate page → final hoster link)
+      if (isBookysLink(link)) {
+        repository.updateDownloadStatusMessage(hash, 'Resolving Bookys link...');
+        console.log(`[DownloadManager] Resolving Bookys download link...`);
+        try {
+          const resolvedLink = await resolveBookysLink(link);
+          if (!resolvedLink || resolvedLink === link) {
+            throw new Error('Failed to resolve Bookys link');
+          }
+          link = resolvedLink;
+        } catch (error: any) {
+          repository.updateDownloadState(hash, 'error', `Bookys resolution failed: ${error.message}`);
+          console.error(`[DownloadManager] Bookys resolution failed: ${error.message}`);
           this.processQueue();
           return;
         }

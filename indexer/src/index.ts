@@ -1,5 +1,6 @@
 import Fastify, { FastifyRequest, FastifyReply } from 'fastify';
 import { config, initializeSiteUrls } from './config.js';
+import { getScraper } from './scrapers/index.js';
 import { torznabRoutes } from './routes/torznab.js';
 import darkiworldConfigRoutes from './routes/darkiworld-config.js';
 import { getAvailableSites } from './scrapers/index.js';
@@ -27,6 +28,9 @@ async function start(): Promise<void> {
   try {
     // Initialize site URLs (fetch from Telegram if not configured)
     await initializeSiteUrls();
+
+    // Pre-warm Bookys cache in background (constructor triggers scrape)
+    getScraper('bookys');
 
     // Register routes
     await app.register(torznabRoutes);
