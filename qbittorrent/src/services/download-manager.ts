@@ -738,7 +738,14 @@ class DownloadManager {
           onExtracting: () => {
             repository.updateDownloadStatusMessage(hash, 'Extracting...');
           },
-          onComplete: () => {
+          onComplete: (finalPath) => {
+            // Update name from finalPath (handles archive extraction: show.zip -> show)
+            const finalName = path.basename(finalPath);
+            const currentDl = repository.getDownloadByHash(hash);
+            if (currentDl && finalName !== currentDl.name) {
+              repository.updateDownloadName(hash, finalName);
+              console.log(`[DownloadManager] Updated name after extraction: ${currentDl.name} -> ${finalName}`);
+            }
             repository.updateDownloadState(hash, 'completed');
             console.log(`[DownloadManager] Completed: ${name}`);
             this.processQueue();
@@ -955,7 +962,14 @@ class DownloadManager {
           onExtracting: () => {
             repository.updateDownloadStatusMessage(hash, 'Extracting...');
           },
-          onComplete: () => {
+          onComplete: (finalPath) => {
+            // Update name from finalPath (handles archive extraction: show.zip -> show)
+            const finalName = path.basename(finalPath);
+            const currentDl = repository.getDownloadByHash(hash);
+            if (currentDl && finalName !== currentDl.name) {
+              repository.updateDownloadName(hash, finalName);
+              console.log(`[DownloadManager] Updated name after extraction: ${currentDl.name} -> ${finalName}`);
+            }
             repository.updateDownloadState(hash, 'completed');
             console.log(`[DownloadManager] Completed: ${name}`);
             this.processQueue();
@@ -1129,6 +1143,13 @@ class DownloadManager {
             console.log(`[DownloadManager] Extracting: ${name}`);
           },
           onComplete: (finalPath) => {
+            // Update name from finalPath (handles archive extraction: show.zip -> show)
+            const finalName = path.basename(finalPath);
+            const currentDl = repository.getDownloadByHash(hash);
+            if (currentDl && finalName !== currentDl.name) {
+              repository.updateDownloadName(hash, finalName);
+              console.log(`[DownloadManager] Updated name after extraction: ${currentDl.name} -> ${finalName}`);
+            }
             repository.updateDownloadState(hash, 'completed');
             console.log(`[DownloadManager] Completed: ${name} -> ${finalPath}`);
             this.processQueue();
@@ -1286,6 +1307,13 @@ class DownloadManager {
           console.log(`[DownloadManager] Extracting: ${name}`);
         },
         onComplete: (finalPath) => {
+          // Update name from finalPath (handles archive extraction: show.zip -> show)
+          const finalName = path.basename(finalPath);
+          const currentDl = repository.getDownloadByHash(hash);
+          if (currentDl && finalName !== currentDl.name) {
+            repository.updateDownloadName(hash, finalName);
+            console.log(`[DownloadManager] Updated name after extraction: ${currentDl.name} -> ${finalName}`);
+          }
           repository.updateDownloadState(hash, 'completed');
           console.log(`[DownloadManager] Completed: ${name} -> ${finalPath}`);
           this.processQueue();

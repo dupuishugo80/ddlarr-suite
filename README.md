@@ -581,6 +581,15 @@ ddl_torznab/
 
 ## Dépannage
 
+### Les identifiants Darkiworld sont perdus au redémarrage
+
+Les identifiants saisis via l'interface web sont automatiquement sauvegardés sur disque et restaurés au redémarrage du conteneur. Si ce n'est pas le cas, vérifiez que le volume de configuration est bien monté :
+
+- **docker-compose.yml** : `${DARKIWORLD_CONFIG_PATH:-./darkiworld-config}:/app/config`
+- **docker-compose.prod.yml** : volume nommé `darkiworld-config:/app/config`
+
+> **Note** : La session (cookies) n'est pas persistée — le service se ré-authentifiera automatiquement au redémarrage avec les identifiants sauvegardés.
+
 ### Les recherches ne retournent rien
 
 - Vérifier que les URLs des sites sont correctes et accessibles

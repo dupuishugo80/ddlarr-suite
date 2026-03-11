@@ -7,13 +7,13 @@ type: public
 encoding: UTF-8
 
 links:
-  - http://ddl-torznab:3000
+  - http://ddl-torznab:9117
 
 settings:
   - name: baseurl
     type: text
     label: DDL Torznab URL
-    default: "http://ddl-torznab:3000"
+    default: "http://ddl-torznab:9117"
   - name: site
     type: select
     label: Source Site
