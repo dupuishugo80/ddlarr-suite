@@ -52,4 +52,4 @@ ENV DISPLAY=:99
 EXPOSE 5000
 
 # Run with xvfb for real browser (headless=False)
-CMD xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python main.py
+CMD ["sh", "-c", "xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' python main.py"]
