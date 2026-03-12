@@ -180,7 +180,7 @@ export function startDownload(
     parseProgress(download, output);
   });
 
-  proc.on('close', (code) => {
+  proc.on('close', async (code) => {
     // Check if this was an intentional stop (pause)
     if (download.stopped) {
       console.log(`[Downloader] Download paused: ${hash}`);
@@ -190,41 +190,45 @@ export function startDownload(
     }
 
     if (code === 0) {
-      // Move file from temp to final destination (async to not block)
+      // Check if we need to extract the archive BEFORE moving
+      const config = getConfig();
+      if (config.autoExtractArchive && isArchive(filename)) {
+        // Extract directly from temp to final destination
+        console.log(`[Downloader] Archive detected, extracting from temp: ${actualTempPath}`);
+        download.onExtracting?.(finalPath);
+
+        try {
+          const destDir = path.dirname(finalPath);
+          await extractArchive(actualTempPath, destDir, filename);
+
+          // Delete the archive from temp after successful extraction
+          try {
+            await deleteFile(actualTempPath);
+          } catch (deleteError: any) {
+            // Log but don't fail if we can't delete the archive
+            console.warn(`[Downloader] Could not delete archive from temp: ${deleteError.message}`);
+          }
+
+          console.log(`[Downloader] Extraction complete, files extracted to: ${destDir}`);
+          console.log(`[Downloader] Download complete: ${finalPath}`);
+          download.progress = 100;
+          download.onComplete?.(finalPath);
+          activeDownloads.delete(hash);
+        } catch (extractError: any) {
+          console.error(`[Downloader] Extraction failed: ${extractError.message}`);
+          download.onError?.(new Error(`Extraction failed: ${extractError.message}`));
+          activeDownloads.delete(hash);
+        }
+        return;
+      }
+
+      // For non-archive files, move from temp to final destination
       download.onMoving?.(finalPath);
       console.log(`[Downloader] Moving file to: ${finalPath}`);
 
       moveFileAsync(hash, actualTempPath, finalPath, download.onMoveProgress)
         .then(async () => {
           console.log(`[Downloader] File moved to: ${finalPath}`);
-
-          // Check if we need to extract the archive
-          const config = getConfig();
-          if (config.autoExtractArchive && isArchive(filename)) {
-            console.log(`[Downloader] Archive detected, extracting: ${finalPath}`);
-            download.onExtracting?.(finalPath);
-
-            try {
-              const destDir = path.dirname(finalPath);
-              await extractArchive(finalPath, destDir);
-
-              // Delete the archive after successful extraction
-              try {
-                await deleteFile(finalPath);
-              } catch (deleteError: any) {
-                // Log but don't fail if we can't delete the archive
-                console.warn(`[Downloader] Could not delete archive after extraction: ${deleteError.message}`);
-              }
-
-              console.log(`[Downloader] Extraction complete: ${finalPath}`);
-            } catch (extractError: any) {
-              console.error(`[Downloader] Extraction failed: ${extractError.message}`);
-              download.onError?.(new Error(`Extraction failed: ${extractError.message}`));
-              activeDownloads.delete(hash);
-              return;
-            }
-          }
-
           console.log(`[Downloader] Download complete: ${finalPath}`);
           download.progress = 100;
           download.onComplete?.(finalPath);
