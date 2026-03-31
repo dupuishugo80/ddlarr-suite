@@ -12,7 +12,7 @@ import os
 import threading
 import time
 from flask import Flask
-from config import DARKIWORLD_URL, PORT, DEBUG, get_darkiworld_url
+from config import DARKIWORLD_URL, PORT, DEBUG, get_darkiworld_url, runtime_config, set_authenticated
 from driver_sb import close_driver, get_driver
 from auth_sb import ensure_authenticated
 from routes import api
@@ -57,10 +57,52 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
 signal.signal(signal.SIGTERM, signal_handler)  # kill command
 
+def startup_login():
+    """
+    Automatic login at startup if credentials are saved and enabled.
+    Checks both environment variables and persisted credentials from disk.
+    """
+    email = os.getenv('DARKIWORLD_EMAIL', '') or runtime_config.get('email', '')
+    password = os.getenv('DARKIWORLD_PASSWORD', '') or runtime_config.get('password', '')
+    enabled = runtime_config.get('enabled', False)
+
+    if not email or not password:
+        logger.info("ℹ️ Auto-login disabled (no credentials configured)")
+        return
+
+    if not enabled:
+        logger.info("ℹ️ Credentials found but Darkiworld is disabled, skipping auto-login")
+        return
+
+    logger.info(f"🚀 Auto-login at startup for: {email}")
+    try:
+        sb = get_driver()
+        darkiworld_url = get_darkiworld_url()
+        authenticated = ensure_authenticated(sb, darkiworld_url, email, password)
+
+        if authenticated:
+            set_authenticated(True)
+            logger.info("✅ Auto-login successful - Darkiworld is active")
+        else:
+            set_authenticated(False)
+            logger.warning("⚠️ Auto-login failed - will retry on first request")
+    except Exception as e:
+        set_authenticated(False)
+        logger.error(f"❌ Auto-login error: {e}")
+    finally:
+        try:
+            close_driver()
+        except Exception:
+            pass
+
+
 if __name__ == '__main__':
     logger.info(f"Starting Darkiworld Scraper on port {PORT}")
     logger.info(f"Target URL: {DARKIWORLD_URL}")
     logger.info("Hoster filtering: via torznab API URL")
+
+    # Auto-login at startup if credentials are saved and enabled
+    startup_login()
 
     try:
         app.run(host='0.0.0.0', port=PORT, debug=DEBUG, use_reloader=False, threaded=False)
