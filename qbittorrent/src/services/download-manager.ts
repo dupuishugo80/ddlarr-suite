@@ -10,7 +10,7 @@ import {
 import { isDlProtectLink, resolveDlProtectLink } from '../utils/dlprotect.js';
 import { isBookysLink, resolveBookysLink } from '../utils/bookys.js';
 import { debridLink, debridTorrent, debridMagnet, isAnyDebridEnabled, getTorrentEnabledServices } from '../debrid/index.js';
-import { startDownload, stopDownload, pauseDownload, getDownloadProgress, isDownloadActive, isDownloadPaused, getPausedDownloadInfo } from './downloader.js';
+import { startDownload, stopDownload, pauseDownload, getDownloadProgress, isDownloadActive, isDownloadPaused, getPausedDownloadInfo, RETRYABLE_CURL_CODES } from './downloader.js';
 import * as repository from '../db/repository.js';
 import type { Download, DownloadState, DownloadType } from '../types/download.js';
 
@@ -131,6 +131,9 @@ class DownloadManager {
   private processing = false;
   // Track active debrid operations for cancellation
   private activeDebridOperations = new Map<string, { cancelled: boolean }>();
+  // Track retry attempts per download hash
+  private retryCount = new Map<string, number>();
+  private static readonly MAX_DOWNLOAD_RETRIES = 3;
 
   /**
    * Get the path where torrent files are stored
@@ -481,6 +484,9 @@ class DownloadManager {
       const download = repository.getDownloadByHash(hash);
       if (!download) continue;
 
+      // Clean up retry tracking
+      this.retryCount.delete(hash);
+
       // Cancel any active debrid operation (for real torrents in checking state)
       if (this.activeDebridOperations.has(hash)) {
         console.log(`[DownloadManager] Cancelling debrid operation for: ${hash}`);
@@ -644,6 +650,80 @@ class DownloadManager {
   }
 
   /**
+   * Extract curl exit code from an error thrown by the downloader
+   */
+  private getCurlExitCode(error: Error): number | null {
+    const typed = error as Error & { curlExitCode?: number };
+    if (typed.curlExitCode !== undefined) return typed.curlExitCode;
+    const match = error.message.match(/Download failed with code (\d+)/);
+    return match ? parseInt(match[1], 10) : null;
+  }
+
+  /**
+   * Attempt to retry a failed download if the error is retryable.
+   * For DDL downloads, obtains a fresh debrid URL before retrying.
+   * For torrent/magnet downloads, retries with the same URL (resume from temp file).
+   */
+  private async retryDownloadOnError(
+    hash: string,
+    name: string,
+    originalLink: string | null,
+    error: Error,
+    restartFn: (freshUrl: string) => void,
+    failFn: () => void,
+  ): Promise<void> {
+    const curlCode = this.getCurlExitCode(error);
+    const currentRetries = this.retryCount.get(hash) || 0;
+
+    if (
+      curlCode !== null &&
+      RETRYABLE_CURL_CODES.has(curlCode) &&
+      currentRetries < DownloadManager.MAX_DOWNLOAD_RETRIES
+    ) {
+      this.retryCount.set(hash, currentRetries + 1);
+      const attempt = currentRetries + 1;
+      console.log(`[DownloadManager] Retryable error (curl code ${curlCode}) for ${name}, attempt ${attempt}/${DownloadManager.MAX_DOWNLOAD_RETRIES}`);
+
+      // Check download still exists (user may have deleted it during failure)
+      const dl = repository.getDownloadByHash(hash);
+      if (!dl || dl.state === 'completed') {
+        console.log(`[DownloadManager] Download ${hash} no longer active, skipping retry`);
+        this.retryCount.delete(hash);
+        return;
+      }
+
+      repository.updateDownloadStatusMessage(hash, `Retry ${attempt}/${DownloadManager.MAX_DOWNLOAD_RETRIES}...`);
+
+      // Wait before retrying to avoid spamming
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      try {
+        let freshUrl = originalLink;
+        // Re-debrid only for DDL downloads where we have an original (pre-debrid) link
+        if (originalLink && isAnyDebridEnabled()) {
+          repository.updateDownloadStatusMessage(hash, `Retry ${attempt}/${DownloadManager.MAX_DOWNLOAD_RETRIES}: re-debriding...`);
+          const debridedUrl = await debridLink(originalLink);
+          if (debridedUrl && debridedUrl !== originalLink) {
+            repository.updateDownloadLink(hash, debridedUrl);
+            freshUrl = debridedUrl;
+          }
+        }
+
+        repository.updateDownloadState(hash, 'downloading');
+        repository.updateDownloadStatusMessage(hash, `Retry ${attempt}/${DownloadManager.MAX_DOWNLOAD_RETRIES}: downloading...`);
+        restartFn(freshUrl!);
+      } catch (retryError: any) {
+        console.error(`[DownloadManager] Retry failed for ${name}: ${retryError.message}`);
+        this.retryCount.delete(hash);
+        failFn();
+      }
+    } else {
+      this.retryCount.delete(hash);
+      failFn();
+    }
+  }
+
+  /**
    * Process a real torrent (upload to debrid, wait for completion, download files)
    */
   private async startProcessingRealTorrent(download: Download): Promise<void> {
@@ -740,6 +820,7 @@ class DownloadManager {
           },
           onComplete: (finalPath) => {
             // Update name from finalPath (handles archive extraction: show.zip -> show)
+            this.retryCount.delete(hash);
             const finalName = path.basename(finalPath);
             const currentDl = repository.getDownloadByHash(hash);
             if (currentDl && finalName !== currentDl.name) {
@@ -751,9 +832,18 @@ class DownloadManager {
             this.processQueue();
           },
           onError: (error) => {
-            repository.updateDownloadState(hash, 'error', error.message);
-            console.error(`[DownloadManager] Error: ${name} - ${error.message}`);
-            this.processQueue();
+            this.retryDownloadOnError(hash, name, null, error,
+              (freshUrl) => startDownload(hash, freshUrl, actualName, {
+                onProgress: (p) => { repository.updateDownloadProgress(hash, p.downloadedBytes, p.totalBytes, p.downloadSpeed); },
+                onMoving: (fp) => { const d = repository.getDownloadByHash(hash); if (d && d.totalSize > 0) repository.updateDownloadProgress(hash, d.totalSize, d.totalSize, 0); repository.updateDownloadStatusMessage(hash, `Moving to ${fp}...`); },
+                onMoveProgress: (c, t, s) => { repository.updateDownloadStatusMessage(hash, `Copying... ${Math.round((c / t) * 100)}% - ${formatSpeed(s)}`); },
+                onExtracting: () => { repository.updateDownloadStatusMessage(hash, 'Extracting...'); },
+                onComplete: (fp) => { this.retryCount.delete(hash); const fn = path.basename(fp); const cd = repository.getDownloadByHash(hash); if (cd && fn !== cd.name) repository.updateDownloadName(hash, fn); repository.updateDownloadState(hash, 'completed'); this.processQueue(); },
+                onError: (e) => { this.retryCount.delete(hash); repository.updateDownloadState(hash, 'error', e.message); this.processQueue(); },
+                onPaused: () => { console.log(`[DownloadManager] Download paused: ${name}`); },
+              }, undefined, savePath),
+              () => { repository.updateDownloadState(hash, 'error', error.message); console.error(`[DownloadManager] Error: ${name} - ${error.message}`); this.processQueue(); },
+            );
           },
           onPaused: () => {
             console.log(`[DownloadManager] Download paused: ${name}`);
@@ -834,9 +924,15 @@ class DownloadManager {
               downloadNextFile(index + 1);
             },
             onError: (error) => {
-              repository.updateDownloadState(hash, 'error', `File ${index + 1} failed: ${error.message}`);
-              console.error(`[DownloadManager] Error on file ${index + 1}: ${error.message}`);
-              this.processQueue();
+              this.retryDownloadOnError(fileHash, name, null, error,
+                (freshUrl) => startDownload(fileHash, freshUrl, filename, {
+                  onProgress: (p) => { const pct = totalFiles > 1 ? Math.round(((completedFiles + (p.progress / 100)) / totalFiles) * 100) : p.progress; repository.updateDownloadProgress(hash, totalDownloaded + p.downloadedBytes, 0, p.downloadSpeed); },
+                  onComplete: (fp) => { this.retryCount.delete(fileHash); completedFiles++; try { const s = fs.statSync(fp); totalDownloaded += s.size; } catch {} downloadNextFile(index + 1); },
+                  onError: (e) => { this.retryCount.delete(fileHash); repository.updateDownloadState(hash, 'error', `File ${index + 1} failed: ${e.message}`); this.processQueue(); },
+                  onPaused: () => { console.log(`[DownloadManager] Download paused at file ${index + 1}/${totalFiles}`); },
+                }, undefined, torrentFolder),
+                () => { repository.updateDownloadState(hash, 'error', `File ${index + 1} failed: ${error.message}`); console.error(`[DownloadManager] Error on file ${index + 1}: ${error.message}`); this.processQueue(); },
+              );
             },
             onPaused: () => {
               console.log(`[DownloadManager] Download paused at file ${index + 1}/${totalFiles}`);
@@ -964,6 +1060,7 @@ class DownloadManager {
           },
           onComplete: (finalPath) => {
             // Update name from finalPath (handles archive extraction: show.zip -> show)
+            this.retryCount.delete(hash);
             const finalName = path.basename(finalPath);
             const currentDl = repository.getDownloadByHash(hash);
             if (currentDl && finalName !== currentDl.name) {
@@ -975,9 +1072,18 @@ class DownloadManager {
             this.processQueue();
           },
           onError: (error) => {
-            repository.updateDownloadState(hash, 'error', error.message);
-            console.error(`[DownloadManager] Error: ${name} - ${error.message}`);
-            this.processQueue();
+            this.retryDownloadOnError(hash, name, null, error,
+              (freshUrl) => startDownload(hash, freshUrl, actualName, {
+                onProgress: (p) => { repository.updateDownloadProgress(hash, p.downloadedBytes, p.totalBytes, p.downloadSpeed); },
+                onMoving: (fp) => { const d = repository.getDownloadByHash(hash); if (d && d.totalSize > 0) repository.updateDownloadProgress(hash, d.totalSize, d.totalSize, 0); repository.updateDownloadStatusMessage(hash, `Moving to ${fp}...`); },
+                onMoveProgress: (c, t, s) => { repository.updateDownloadStatusMessage(hash, `Copying... ${Math.round((c / t) * 100)}% - ${formatSpeed(s)}`); },
+                onExtracting: () => { repository.updateDownloadStatusMessage(hash, 'Extracting...'); },
+                onComplete: (fp) => { this.retryCount.delete(hash); const fn = path.basename(fp); const cd = repository.getDownloadByHash(hash); if (cd && fn !== cd.name) repository.updateDownloadName(hash, fn); repository.updateDownloadState(hash, 'completed'); this.processQueue(); },
+                onError: (e) => { this.retryCount.delete(hash); repository.updateDownloadState(hash, 'error', e.message); this.processQueue(); },
+                onPaused: () => { console.log(`[DownloadManager] Download paused: ${name}`); },
+              }, undefined, savePath),
+              () => { repository.updateDownloadState(hash, 'error', error.message); console.error(`[DownloadManager] Error: ${name} - ${error.message}`); this.processQueue(); },
+            );
           },
           onPaused: () => {
             console.log(`[DownloadManager] Download paused: ${name}`);
@@ -1058,9 +1164,15 @@ class DownloadManager {
               downloadNextFile(index + 1);
             },
             onError: (error) => {
-              repository.updateDownloadState(hash, 'error', `File ${index + 1} failed: ${error.message}`);
-              console.error(`[DownloadManager] Error on file ${index + 1}: ${error.message}`);
-              this.processQueue();
+              this.retryDownloadOnError(fileHash, name, null, error,
+                (freshUrl) => startDownload(fileHash, freshUrl, filename, {
+                  onProgress: (p) => { const pct = totalFiles > 1 ? Math.round(((completedFiles + (p.progress / 100)) / totalFiles) * 100) : p.progress; repository.updateDownloadProgress(hash, totalDownloaded + p.downloadedBytes, 0, p.downloadSpeed); },
+                  onComplete: (fp) => { this.retryCount.delete(fileHash); completedFiles++; try { const s = fs.statSync(fp); totalDownloaded += s.size; } catch {} downloadNextFile(index + 1); },
+                  onError: (e) => { this.retryCount.delete(fileHash); repository.updateDownloadState(hash, 'error', `File ${index + 1} failed: ${e.message}`); this.processQueue(); },
+                  onPaused: () => { console.log(`[DownloadManager] Download paused at file ${index + 1}/${totalFiles}`); },
+                }, undefined, torrentFolder),
+                () => { repository.updateDownloadState(hash, 'error', `File ${index + 1} failed: ${error.message}`); console.error(`[DownloadManager] Error on file ${index + 1}: ${error.message}`); this.processQueue(); },
+              );
             },
             onPaused: () => {
               console.log(`[DownloadManager] Download paused at file ${index + 1}/${totalFiles}`);
@@ -1144,6 +1256,7 @@ class DownloadManager {
           },
           onComplete: (finalPath) => {
             // Update name from finalPath (handles archive extraction: show.zip -> show)
+            this.retryCount.delete(hash);
             const finalName = path.basename(finalPath);
             const currentDl = repository.getDownloadByHash(hash);
             if (currentDl && finalName !== currentDl.name) {
@@ -1155,9 +1268,18 @@ class DownloadManager {
             this.processQueue();
           },
           onError: (error) => {
-            repository.updateDownloadState(hash, 'error', error.message);
-            console.error(`[DownloadManager] Error: ${name} - ${error.message}`);
-            this.processQueue();
+            this.retryDownloadOnError(hash, name, originalLink, error,
+              (freshUrl) => startDownload(hash, freshUrl, name, {
+                onProgress: (p) => { repository.updateDownloadProgress(hash, p.downloadedBytes, p.totalBytes, p.downloadSpeed); },
+                onMoving: (fp) => { const d = repository.getDownloadByHash(hash); if (d && d.totalSize > 0) repository.updateDownloadProgress(hash, d.totalSize, d.totalSize, 0); repository.updateDownloadStatusMessage(hash, `Moving to ${fp}...`); },
+                onMoveProgress: (c, t, s) => { repository.updateDownloadStatusMessage(hash, `Copying... ${Math.round((c / t) * 100)}% - ${formatSpeed(s)}`); },
+                onExtracting: () => { repository.updateDownloadStatusMessage(hash, 'Extracting...'); },
+                onComplete: (fp) => { this.retryCount.delete(hash); const fn = path.basename(fp); const cd = repository.getDownloadByHash(hash); if (cd && fn !== cd.name) repository.updateDownloadName(hash, fn); repository.updateDownloadState(hash, 'completed'); this.processQueue(); },
+                onError: (e) => { this.retryCount.delete(hash); repository.updateDownloadState(hash, 'error', e.message); this.processQueue(); },
+                onPaused: () => { console.log(`[DownloadManager] Download paused callback: ${name}`); },
+              }, undefined, download.savePath),
+              () => { repository.updateDownloadState(hash, 'error', error.message); console.error(`[DownloadManager] Error: ${name} - ${error.message}`); this.processQueue(); },
+            );
           },
           onPaused: () => {
             // State is already set to paused by the pause() method
@@ -1308,6 +1430,7 @@ class DownloadManager {
         },
         onComplete: (finalPath) => {
           // Update name from finalPath (handles archive extraction: show.zip -> show)
+          this.retryCount.delete(hash);
           const finalName = path.basename(finalPath);
           const currentDl = repository.getDownloadByHash(hash);
           if (currentDl && finalName !== currentDl.name) {
@@ -1319,9 +1442,18 @@ class DownloadManager {
           this.processQueue();
         },
         onError: (error) => {
-          repository.updateDownloadState(hash, 'error', error.message);
-          console.error(`[DownloadManager] Error: ${name} - ${error.message}`);
-          this.processQueue();
+          this.retryDownloadOnError(hash, name, originalLink, error,
+            (freshUrl) => startDownload(hash, freshUrl, actualName, {
+              onProgress: (p) => { repository.updateDownloadProgress(hash, p.downloadedBytes, p.totalBytes, p.downloadSpeed); },
+              onMoving: (fp) => { const d = repository.getDownloadByHash(hash); if (d && d.totalSize > 0) repository.updateDownloadProgress(hash, d.totalSize, d.totalSize, 0); repository.updateDownloadStatusMessage(hash, `Moving to ${fp}...`); },
+              onMoveProgress: (c, t, s) => { repository.updateDownloadStatusMessage(hash, `Copying... ${Math.round((c / t) * 100)}% - ${formatSpeed(s)}`); },
+              onExtracting: () => { repository.updateDownloadStatusMessage(hash, 'Extracting...'); },
+              onComplete: (fp) => { this.retryCount.delete(hash); const fn = path.basename(fp); const cd = repository.getDownloadByHash(hash); if (cd && fn !== cd.name) repository.updateDownloadName(hash, fn); repository.updateDownloadState(hash, 'completed'); this.processQueue(); },
+              onError: (e) => { this.retryCount.delete(hash); repository.updateDownloadState(hash, 'error', e.message); this.processQueue(); },
+              onPaused: () => { console.log(`[DownloadManager] Download paused callback: ${name}`); },
+            }, undefined, savePath),
+            () => { repository.updateDownloadState(hash, 'error', error.message); console.error(`[DownloadManager] Error: ${name} - ${error.message}`); this.processQueue(); },
+          );
         },
         onPaused: () => {
           // State is already set to paused by the pause() method
