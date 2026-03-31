@@ -3,6 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getConfig } from '../config.js';
 import type { DownloadProgress } from '../types/download.js';
+
+// Curl exit codes that indicate transient network errors (retryable at application level)
+export const RETRYABLE_CURL_CODES = new Set([7, 18, 28, 52, 56]);
 import { isArchive, extractArchive, deleteFile } from './extractor.js';
 
 interface ActiveDownload {
@@ -112,6 +115,10 @@ export function startDownload(
     '-o', actualTempPath,
     '--fail',
     '--progress-bar',
+    '--retry', '3',
+    '--retry-delay', '2',
+    '--retry-all-errors',
+    '--keepalive-time', '30',
   ];
 
   // Add resume flag if file exists with content
@@ -274,13 +281,20 @@ export function startDownload(
       return;
     } else {
       console.error(`[Downloader] Download failed with code ${code}`);
-      // Cleanup temp file on error
-      try {
-        if (fs.existsSync(actualTempPath)) {
-          fs.unlinkSync(actualTempPath);
-        }
-      } catch {}
-      download.onError?.(new Error(`Download failed with code ${code}`));
+      if (code !== null && RETRYABLE_CURL_CODES.has(code)) {
+        // Keep temp file for retryable errors so application-level retry can resume
+        console.log(`[Downloader] Retryable error (code ${code}), keeping temp file for retry`);
+      } else {
+        // Non-retryable: cleanup temp file
+        try {
+          if (fs.existsSync(actualTempPath)) {
+            fs.unlinkSync(actualTempPath);
+          }
+        } catch {}
+      }
+      const err = new Error(`Download failed with code ${code}`) as Error & { curlExitCode?: number };
+      err.curlExitCode = code ?? undefined;
+      download.onError?.(err);
     }
     activeDownloads.delete(hash);
   });
