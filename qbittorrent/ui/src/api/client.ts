@@ -104,7 +104,7 @@ class ApiClient {
     const formData = new URLSearchParams()
     formData.append('hashes', hashes.join('|'))
 
-    await fetch(`${this.baseUrl}/api/v2/torrents/pause`, {
+    const response = await fetch(`${this.baseUrl}/api/v2/torrents/pause`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -112,13 +112,14 @@ class ApiClient {
       body: formData,
       credentials: 'include',
     })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
   }
 
   async resumeTorrents(hashes: string[]): Promise<void> {
     const formData = new URLSearchParams()
     formData.append('hashes', hashes.join('|'))
 
-    await fetch(`${this.baseUrl}/api/v2/torrents/resume`, {
+    const response = await fetch(`${this.baseUrl}/api/v2/torrents/resume`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -126,6 +127,7 @@ class ApiClient {
       body: formData,
       credentials: 'include',
     })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
   }
 
   async deleteTorrents(hashes: string[], deleteFiles: boolean): Promise<void> {
@@ -133,7 +135,7 @@ class ApiClient {
     formData.append('hashes', hashes.join('|'))
     formData.append('deleteFiles', deleteFiles ? 'true' : 'false')
 
-    await fetch(`${this.baseUrl}/api/v2/torrents/delete`, {
+    const response = await fetch(`${this.baseUrl}/api/v2/torrents/delete`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -141,6 +143,7 @@ class ApiClient {
       body: formData,
       credentials: 'include',
     })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
   }
 }
 

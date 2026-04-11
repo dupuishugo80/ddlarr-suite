@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { apiClient, type TorrentInfo } from '../api/client'
+import { useToastStore } from './toast'
 
 export const useTorrentsStore = defineStore('torrents', () => {
   const torrents = ref<TorrentInfo[]>([])
@@ -8,6 +9,7 @@ export const useTorrentsStore = defineStore('torrents', () => {
   const isLoading = ref(false)
   const error = ref<string | null>(null)
   const isAuthenticated = ref(false)
+  const connectionLost = ref(false)
 
   const filteredTorrents = computed(() => {
     if (filter.value === 'all') return torrents.value
@@ -56,9 +58,12 @@ export const useTorrentsStore = defineStore('torrents', () => {
       }
       error.value = null
       torrents.value = await apiClient.getTorrents()
+      connectionLost.value = false
     } catch (e: any) {
       if (e.message === 'Not authenticated') {
         isAuthenticated.value = false
+      } else {
+        connectionLost.value = true
       }
       error.value = e.message
     } finally {
@@ -85,18 +90,39 @@ export const useTorrentsStore = defineStore('torrents', () => {
   }
 
   async function pauseTorrents(hashes: string[]): Promise<void> {
-    await apiClient.pauseTorrents(hashes)
-    await fetchTorrents()
+    const toast = useToastStore()
+    try {
+      await apiClient.pauseTorrents(hashes)
+      await fetchTorrents()
+      toast.show('Download paused', 'success')
+    } catch (e: any) {
+      toast.show(`Failed to pause: ${e.message}`, 'error')
+      throw e
+    }
   }
 
   async function resumeTorrents(hashes: string[]): Promise<void> {
-    await apiClient.resumeTorrents(hashes)
-    await fetchTorrents()
+    const toast = useToastStore()
+    try {
+      await apiClient.resumeTorrents(hashes)
+      await fetchTorrents()
+      toast.show('Download resumed', 'success')
+    } catch (e: any) {
+      toast.show(`Failed to resume: ${e.message}`, 'error')
+      throw e
+    }
   }
 
   async function deleteTorrents(hashes: string[], deleteFiles: boolean): Promise<void> {
-    await apiClient.deleteTorrents(hashes, deleteFiles)
-    await fetchTorrents()
+    const toast = useToastStore()
+    try {
+      await apiClient.deleteTorrents(hashes, deleteFiles)
+      await fetchTorrents()
+      toast.show('Download deleted', 'success')
+    } catch (e: any) {
+      toast.show(`Failed to delete: ${e.message}`, 'error')
+      throw e
+    }
   }
 
   function setFilter(newFilter: string): void {
@@ -121,6 +147,7 @@ export const useTorrentsStore = defineStore('torrents', () => {
     isLoading,
     error,
     isAuthenticated,
+    connectionLost,
     stats,
     login,
     logout,
