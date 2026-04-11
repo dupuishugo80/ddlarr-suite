@@ -5,6 +5,7 @@ import LoginForm from './components/LoginForm.vue'
 import TorrentList from './components/TorrentList.vue'
 import AddTorrentModal from './components/AddTorrentModal.vue'
 import Navbar from './components/Navbar.vue'
+import ToastNotification from './components/ToastNotification.vue'
 
 const store = useTorrentsStore()
 const showAddModal = ref(false)
@@ -48,6 +49,16 @@ async function handleLogout() {
 
 <template>
   <div class="min-h-screen bg-gray-100">
+    <!-- Connection lost banner -->
+    <Transition name="banner">
+      <div
+        v-if="store.connectionLost && store.isAuthenticated"
+        class="bg-yellow-400 text-yellow-900 text-sm text-center py-2 px-4 font-medium"
+      >
+        Connection lost — reconnecting...
+      </div>
+    </Transition>
+
     <template v-if="!store.isAuthenticated">
       <div class="flex items-center justify-center min-h-screen">
         <LoginForm @login="handleLogin" />
@@ -60,5 +71,21 @@ async function handleLogout() {
       </main>
       <AddTorrentModal v-if="showAddModal" @close="showAddModal = false" />
     </template>
+
+    <ToastNotification />
   </div>
 </template>
+
+<style scoped>
+.banner-enter-active,
+.banner-leave-active {
+  transition: all 0.3s ease;
+}
+.banner-enter-from,
+.banner-leave-to {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+</style>
