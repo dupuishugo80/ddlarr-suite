@@ -64,62 +64,67 @@ def get_url_after_redirect(url: str, timeout: int = 5) -> Optional[str]:
         return None
 
 
-# URL resolution cache with TTL (refreshed every hour like indexer)
-_resolved_url_cache: Optional[str] = None
-_cache_timestamp: Optional[float] = None
+# URL resolution caches with TTL (refreshed every hour like indexer)
+# Two separate URLs: login/base (hydracker.com) and scrape/search (dd.hydracker.com)
 CACHE_TTL = 60 * 60  # 1 hour in seconds
+LOGIN_URL_START = 'https://hydracker.com/'
+SCRAPE_URL_START = 'https://dd.hydracker.com/'
+
+_url_cache: dict = {}  # starting_url -> (resolved_url, timestamp)
+
+
+def _resolve_url(starting_url: str, env_var: Optional[str], label: str) -> str:
+    """
+    Resolve URL with lazy resolution and TTL caching.
+
+    Priority:
+    1. Env var (if set and not empty)
+    2. Cached resolved URL (if not expired)
+    3. Resolve via redirect from starting_url
+    4. Fallback to starting_url
+    """
+    if env_var:
+        env_url = os.getenv(env_var, '').strip()
+        if env_url:
+            logger.debug(f"Using {label} from environment: {env_url}")
+            return env_url
+
+    cached = _url_cache.get(starting_url)
+    if cached:
+        cached_url, cached_at = cached
+        age = time.time() - cached_at
+        if age < CACHE_TTL:
+            logger.debug(f"Using cached {label} (age: {int(age)}s): {cached_url}")
+            return cached_url
+        else:
+            logger.info(f"{label} cache expired (age: {int(age)}s), re-resolving...")
+
+    logger.info(f"Resolving {label} via redirect from {starting_url}...")
+    resolved = get_url_after_redirect(starting_url)
+
+    if resolved:
+        _url_cache[starting_url] = (resolved, time.time())
+        logger.info(f"✓ {label} resolved and cached: {resolved}")
+        return resolved
+
+    logger.warning(f"Could not resolve {label}, using default: {starting_url}")
+    _url_cache[starting_url] = (starting_url, time.time())
+    return starting_url
 
 
 def get_darkiworld_url() -> str:
-    """
-    Get Darkiworld URL with lazy resolution and TTL caching.
+    """Login/base URL (hydracker.com) — used for authentication flow."""
+    return _resolve_url(LOGIN_URL_START, 'DARKIWORLD_URL', 'Darkiworld login URL')
 
-    Priority:
-    1. DARKIWORLD_URL env var (if set and not empty)
-    2. Cached resolved URL (if not expired)
-    3. Resolve via redirect from https://darkiworld.com/
-    4. Fallback to default URL
 
-    The resolved URL is cached for 1 hour, then re-resolved.
-    """
-    global _resolved_url_cache, _cache_timestamp
-
-    # Priority 1: Environment variable (if not empty)
-    env_url = os.getenv('DARKIWORLD_URL', '').strip()
-    if env_url:
-        logger.debug(f"Using Darkiworld URL from environment: {env_url}")
-        return env_url
-
-    # Priority 2: Cached resolved URL (if not expired)
-    if _resolved_url_cache and _cache_timestamp:
-        age = time.time() - _cache_timestamp
-        if age < CACHE_TTL:
-            logger.debug(f"Using cached Darkiworld URL (age: {int(age)}s): {_resolved_url_cache}")
-            return _resolved_url_cache
-        else:
-            logger.info(f"Cache expired (age: {int(age)}s), re-resolving URL...")
-
-    # Priority 3: Resolve via redirect
-    logger.info("Resolving Darkiworld URL via redirect from https://darkiworld.com/...")
-    resolved = get_url_after_redirect('https://darkiworld.com/')
-
-    if resolved:
-        # Cache the resolved URL with timestamp
-        _resolved_url_cache = resolved
-        _cache_timestamp = time.time()
-        logger.info(f"✓ Darkiworld URL resolved and cached: {resolved}")
-        return resolved
-
-    # Fallback
-    default_url = 'https://darkiworld15.com/'
-    logger.warning(f"Could not resolve URL, using default: {default_url}")
-    _resolved_url_cache = default_url
-    _cache_timestamp = time.time()
-    return default_url
+def get_darkiworld_scrape_url() -> str:
+    """Scrape/search URL (dd.hydracker.com) — used for search API calls."""
+    return _resolve_url(SCRAPE_URL_START, 'DARKIWORLD_SCRAPE_URL', 'Darkiworld scrape URL')
 
 
 # Static config from env (no lazy loading for these)
 DARKIWORLD_URL = get_darkiworld_url()
+DARKIWORLD_SCRAPE_URL = get_darkiworld_scrape_url()
 
 # AllDebrid API configuration
 ALLDEBRID_API_KEY = os.getenv('DARKIWORLD_ALLDEBRID_KEY', '')
