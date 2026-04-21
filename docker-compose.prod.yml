@@ -64,6 +64,7 @@ services:
       - DARKIWORLD_PORT=5002
       - DEBUG=${DEBUG:-false}
       - DARKIWORLD_URL=${DARKIWORLD_URL}
+      - DARKIWORLD_SCRAPE_URL=${DARKIWORLD_SCRAPE_URL}
       - DARKIWORLD_ALLDEBRID_KEY=${ALLDEBRID_API_KEY}
     volumes:
       - darkiworld-output:/app/output

@@ -16,7 +16,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-from config import get_darkiworld_url, DEBUG, get_runtime_config
+from config import get_darkiworld_url, get_darkiworld_scrape_url, DEBUG, get_runtime_config
 from driver_sb import get_driver, close_driver
 from auth_sb import ensure_authenticated
 from utils import parse_relative_date, build_release_name
@@ -537,6 +537,7 @@ def search_darkiworld(data: dict) -> dict:
         sb = get_driver()
         driver = sb.driver  # Keep reference for compatibility with existing code
         darkiworld_url = get_darkiworld_url()
+        scrape_url = get_darkiworld_scrape_url()
         logger.info(f"🔍 Searching for: '{query}' (type: {media_type}, season: {season}, ep: {ep})")
 
         # Ensure authentication (load cookies or login if necessary)
@@ -560,8 +561,8 @@ def search_darkiworld(data: dict) -> dict:
         search_api_url = f"/api/v1/search/{encoded_query}?loader=searchPage"
         logger.info(f"Calling search API: {search_api_url}")
 
-        # Navigate to base URL first to have cookies context
-        sb.open(darkiworld_url)
+        # Navigate to scrape URL (dd.hydracker.com) first to have cookies context for search
+        sb.open(scrape_url)
         sb.wait_for_ready_state_complete()
 
         # Call the search API using JavaScript fetch with cookies
